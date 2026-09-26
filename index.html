@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Letterboxd Etkileşim & Tarih Analizi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #0B110D;
+            --surface-card: #111A13;
+            --surface-input: #0A130D;
+            --border-subtle: #18261B;
+            --border-highlight: rgba(255, 255, 255, 0.08);
+            --brand-green: #00E054;
+            --brand-green-hover: #00C247;
+            --brand-dark-green: #1B5E32;
+            --brand-danger: #FF453A;
+            --text-primary: #FFFFFF;
+            --text-secondary: #899B8E;
+            --text-muted: #536457;
+            --link-accent: #40BCF4;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+            padding: 40px 16px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 680px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1.main-title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -1.2px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        h1.main-title .white-text { color: var(--text-primary); }
+        h1.main-title .green-text { color: var(--brand-green); }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+
+        .card-container {
+            width: 100%;
+            background: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+            margin-bottom: 20px;
+        }
+
+        .action-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-input);
+            color: #FFFFFF;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: #2F5938;
+        }
+
+        input[type="text"]::placeholder {
+            color: var(--text-muted);
+        }
+
+        button.btn-check {
+            background-color: var(--brand-green);
+            color: #05140A;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 13px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        button.btn-check:hover { background-color: var(--brand-green-hover); }
+        button.btn-check:disabled {
+            background-color: #172B1D;
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        /* Durum Kartı */
+        .status-box {
+            width: 100%;
+            display: none;
+            background: #0E1811;
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 16px 18px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+        .status-box b { color: #FFFFFF; }
+
+        /* Kategori Başlık Şeridi */
+        .section-header {
+            width: 100%;
+            background: #111B13;
+            border: 1px solid var(--border-subtle);
+            border-left: 4px solid var(--brand-green);
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .section-header.danger {
+            border-left-color: var(--brand-danger);
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #FFFFFF;
+        }
+
+        .count-pill {
+            background: #080D0A;
+            border: 1px solid var(--border-subtle);
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--brand-green);
+        }
+        .section-header.danger .count-pill {
+            color: var(--brand-danger);
+        }
+
+        /* Kullanıcı Kartları Grid */
+        .results-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .user-card {
+            background-color: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            padding: 10px 12px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .user-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .user-card img {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            object-fit: cover;
+            background-color: #16241A;
+            flex-shrink: 0;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .user-details {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+        }
+
+        .user-details .uname {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-details a {
+            color: var(--brand-green);
+            text-decoration: none;
+            font-size: 11px;
+        }
+        .user-details a:hover { text-decoration: underline; }
+
+        .date-badge {
+            display: inline-block;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 3px;
+            width: fit-content;
+            font-weight: 600;
+        }
+        .date-badge.green {
+            background: rgba(0, 224, 84, 0.12);
+            color: var(--brand-green);
+            border: 1px solid rgba(0, 224, 84, 0.3);
+        }
+        .date-badge.red {
+            background: rgba(255, 69, 58, 0.15);
+            color: var(--brand-danger);
+            border: 1px solid rgba(255, 69, 58, 0.35);
+        }
+        .date-badge.muted {
+            background: #141C16;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-copy {
+            background: #111A13;
+            color: var(--brand-green);
+            border: 1px solid var(--brand-green);
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-bottom: 8px;
+            align-self: flex-end;
+            transition: all 0.2s ease;
+        }
+        .btn-copy:hover {
+            background: var(--brand-green);
+            color: #05140A;
+        }
+
+        footer.footer-sig {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-top: 40px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border-subtle);
+            width: 100%;
+        }
+        footer.footer-sig a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        @media (max-width: 540px) {
+            h1.main-title { font-size: 2.1rem; }
+            .action-row { flex-direction: column; }
+            button.btn-check { width: 100%; }
+            .results-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 class="main-title">
+        <span class="white-text">Letterboxd</span>
+        <span class="green-text">Etkileşim Analizi</span>
+    </h1>
+
+    <p class="subtitle">Takip ettiklerinizin incelemelerinize verdiği beğenileri ve aktiflik tarihlerini karşılaştırın.</p>
+
+    <div class="card-container">
+        <div class="action-row">
+            <div class="input-wrapper">
+                <input type="text" id="username" placeholder="kullanıcı adı veya profil linki..." autocomplete="off" spellcheck="false" />
+            </div>
+            <button id="startBtn" class="btn-check" onclick="analiziBaslat()">Sorgula</button>
+        </div>
+    </div>
+
+    <div id="statusBox" class="status-box"></div>
+    <div id="outputContainer" style="width: 100%;"></div>
+
+    <footer class="footer-sig">
+        Created by <a href="https://letterboxd.com/wokoshi/" target="_blank">wokoshi</a>
+    </footer>
+</div>
+
+<script>
+// Maskelenmiş tünel ve Letterboxd URL'si
+const _v = [
+    "aHR0cHM6Ly9sZXR0ZXJib3hkLXByb3h5LjExN2VtaXIyMDAyLndvcmtlcnMuZGV2Lz91cmw9",
+    "aHR0cHM6Ly9sZXR0ZXJib3hkLmNvbS8="
+];
+const _u = (i) => atob(_v[i]);
+
+function cleanInput(val) {
+    val = (val || "").trim();
+    if (val.includes("letterboxd.com/")) {
+        const p = val.split("letterboxd.com/")[1].split("/").filter(Boolean);
+        return p[0] || val;
+    }
+    return val.replace(/[/@]/g, "");
+}
+
+async function fetchHtml(target) {
+    try {
+        const res = await fetch(_u(0) + encodeURIComponent(target));
+        if (res.status === 404) return { s: 404, h: "" };
+        if (!res.ok) return { s: res.status, h: "" };
+        const text = await res.text();
+        return { s: 200, h: text };
+    } catch (e) {
+        return { s: 500, h: "" };
+    }
+}
+
+// 1. Takip Edilenleri Çek
+async function getFollowingList(user, statusEl) {
+    let following = {};
+    const parser = new DOMParser();
+    let page = 1;
+
+    while (true) {
+        statusEl.innerHTML = `⚡ <b>Takip edilenler taranıyor:</b> Sayfa ${page} (${Object.keys(following).length} kişi)`;
+        const url = page === 1 ? `${_u(1)}${user}/following/` : `${_u(1)}${user}/following/page/${page}/`;
+        const res = await fetchHtml(url);
+        if (res.s !== 200 || !res.h) break;
+
+        const doc = parser.parseFromString(res.h, "text/html");
+        const items = doc.querySelectorAll(".person-summary");
+        if (!items || items.length === 0) break;
+
+        let added = 0;
+        items.forEach(el => {
+            const a = el.querySelector("a.name");
+            if (a) {
+                const uname = a.getAttribute("href").replace(/\//g, "").toLowerCase();
+                const img = el.querySelector("img");
+                following[uname] = img && img.getAttribute("src") ? img.getAttribute("src") : "https://s.ltrbxd.com/static/img/avatar220.png";
+                added++;
+            }
+        });
+
+        if (added < 25) break;
+        page++;
+        await new Promise(r => setTimeout(r, 100));
+    }
+    return following;
+}
+
+// 2. TEK SEFERDE İLK SAYFADAN 10 İNCELEMEYİ TOPLU ÇEK (Hızlı Çözüm)
+async function getTopReviews(user, statusEl) {
+    statusEl.innerHTML = `⚡ <b>Son incelemeleriniz tek seferde taranıyor...</b>`;
+    const res = await fetchHtml(`${_u(1)}${user}/films/reviews/`);
+    if (res.s !== 200 || !res.h) return [];
+
+    const doc = new DOMParser().parseFromString(res.h, "text/html");
+    const items = doc.querySelectorAll("li.film-detail, div.film-detail, li.viewing-poster-container");
+    let reviews = [];
+
+    items.forEach(item => {
+        if (reviews.length >= 10) return;
+        const aTags = item.querySelectorAll("a[href]");
+        for (let a of aTags) {
+            let href = a.getAttribute("href").split("?")[0].replace(/^\/|\/$/g, "");
+            let parts = href.split("/");
+            if (parts.length >= 3 && parts[0].toLowerCase() === user.toLowerCase() && parts[1] === "film") {
+                if (!reviews.some(r => r.path === href)) {
+                    const dateTag = item.querySelector("time, span.date, span._nobr");
+                    const dateStr = dateTag ? dateTag.textContent.trim() : "";
+                    const slug = parts[2] || "film";
+                    const title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+                    reviews.push({ path: href, title: title, date: dateStr });
+                }
+                break;
+            }
+        }
+    });
+
+    return reviews;
+}
+
+// 3. İncelemenin Beğenilerini Çek
+async function getReviewLikers(reviewPath) {
+    let likers = new Set();
+    let page = 1;
+    const parser = new DOMParser();
+
+    while (true) {
+        const url = page === 1 ? `${_u(1)}${reviewPath}/likes/` : `${_u(1)}${reviewPath}/likes/page/${page}/`;
+        const res = await fetchHtml(url);
+        if (res.s !== 200 || !res.h) break;
+
+        const doc = parser.parseFromString(res.h, "text/html");
+        const cards = doc.querySelectorAll(".person-summary, a.avatar, table.person-table tr");
+        if (!cards || cards.length === 0) break;
+
+        let added = 0;
+        cards.forEach(c => {
+            const a = c.tagName === "A" ? c : (c.querySelector("a.name") || c.querySelector("a"));
+            if (a && a.getAttribute("href")) {
+                const uname = a.getAttribute("href").replace(/\//g, "").toLowerCase();
+                if (uname && !["likes", "members"].includes(uname)) {
+                    likers.add(uname);
+                    added++;
+                }
+            }
+        });
+
+        if (added < 25) break;
+        page++;
+        await new Promise(r => setTimeout(r, 80));
+    }
+    return likers;
+}
+
+// 4. Hedef Kullanıcının Son İnceleme Tarihini Bul
+async function getUserLastDate(user) {
+    const res = await fetchHtml(`${_u(1)}${user}/films/reviews/`);
+    if (res.s === 200 && res.h) {
+        const doc = new DOMParser().parseFromString(res.h, "text/html");
+        const t = doc.querySelector("time, span.date, span._nobr");
+        if (t) return t.textContent.trim();
+    }
+    // Profil aktivitesine fallback
+    const resProf = await fetchHtml(`${_u(1)}${user}/`);
+    if (resProf.s === 200 && resProf.h) {
+        const docP = new DOMParser().parseFromString(resProf.h, "text/html");
+        const tP = docP.querySelector("section#recent-activity time, time");
+        if (tP) return tP.textContent.trim();
+    }
+    return "İnceleme Yok";
+}
+
+function copyLinks(id, userList) {
+    const text = userList.map(u => `https://letterboxd.com/${u}/`).join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById(id);
+        const old = btn.textContent;
+        btn.textContent = "✅ Kopyalandı!";
+        setTimeout(() => { btn.textContent = old; }, 1500);
+    });
+}
+
+async function analiziBaslat() {
+    const inputVal = document.getElementById("username").value;
+    const username = cleanInput(inputVal);
+    const btn = document.getElementById("startBtn");
+    const statusBox = document.getElementById("statusBox");
+    const out = document.getElementById("outputContainer");
+
+    if (!username) {
+        alert("Lütfen kullanıcı adı giriniz.");
+        return;
+    }
+
+    btn.disabled = true;
+    out.innerHTML = "";
+    statusBox.style.display = "block";
+
+    // Adım 1: Takip Edilenleri Al
+    const following = await getFollowingList(username, statusBox);
+    const followingSet = new Set(Object.keys(following));
+
+    if (followingSet.size === 0) {
+        statusBox.innerHTML = `❌ Kullanıcı bulunamadı veya takip edilen kimse yok.`;
+        btn.disabled = false;
+        return;
+    }
+
+    // Adım 2: Son 10 İncelemeyi Toplu Al
+    const reviews = await getTopReviews(username, statusBox);
+    if (reviews.length === 0) {
+        statusBox.innerHTML = `❌ İnceleme bulunamadı.`;
+        btn.disabled = false;
+        return;
+    }
+
+    // Adım 3: İnceleme Beğenilerini Paralel Olarak Toplu Tara
+    statusBox.innerHTML = `⚡ <b>${reviews.length} incelemenin beğenileri paralel taranıyor...</b>`;
+    const likesPromises = reviews.map(r => getReviewLikers(r.path));
+    const allLikersResults = await Promise.all(likesPromises);
+
+    let reviewLikes = {};
+    reviews.forEach((r, idx) => {
+        const likers = allLikersResults[idx];
+        // Sadece takip edilenler arasındaki kesişim
+        reviewLikes[idx + 1] = new Set([...likers].filter(x => followingSet.has(x)));
+    });
+
+    // Kategori eşleştirmesi
+    let assigned = new Set();
+    let categoryMap = {};
+
+    for (let i = 1; i <= reviews.length; i++) {
+        let cur = reviewLikes[i];
+        let fresh = new Set([...cur].filter(x => !assigned.has(x)));
+        categoryMap[i] = fresh;
+        cur.forEach(u => assigned.add(u));
+    }
+
+    const sifirCekenler = new Set([...followingSet].filter(x => !assigned.has(x)));
+
+    // Filtreye takılan adaylar (6..10. inceleme ve sıfır çekenler)
+    let adaylar = new Set();
+    for (let i = 6; i <= 10; i++) {
+        if (categoryMap[i]) categoryMap[i].forEach(u => adaylar.add(u));
+    }
+    sifirCekenler.forEach(u => adaylar.add(u));
+
+    // Adım 4: Adayların Son İnceleme Tarihlerini 6'şarlı Gruplarla Paralel Çek
+    const adaylarList = Array.from(adaylar);
+    statusBox.innerHTML = `⚡ <b>Filtreye takılan ${adaylarList.length} kişinin son aktiflik tarihleri paralel taranıyor...</b>`;
+    
+    let userDates = {};
+    const chunkSize = 6;
+    for (let i = 0; i < adaylarList.length; i += chunkSize) {
+        const chunk = adaylarList.slice(i, i + chunkSize);
+        const dateResults = await Promise.all(chunk.map(u => getUserLastDate(u)));
+        chunk.forEach((u, cIdx) => {
+            userDates[u] = dateResults[cIdx];
+        });
+        statusBox.innerHTML = `⚡ Tarih kontrolü yapılıyor: <b>${Math.min(i + chunkSize, adaylarList.length)} / ${adaylarList.length}</b>`;
+    }
+
+    statusBox.innerHTML = `🎉 <b>Tüm analiz saniyeler içinde tamamlandı!</b>`;
+
+    // Arayüze Yazdır
+    let finalHtml = "";
+
+    // 6-10 Arası İncelemeler
+    for (let i = 6; i <= 10; i++) {
+        if (!categoryMap[i] || categoryMap[i].size === 0) continue;
+        const katList = Array.from(categoryMap[i]);
+        const rev = reviews[i - 1];
+        const btnId = `copy_rev_${i}`;
+
+        finalHtml += `
+            <div class="section-header">
+                <span class="section-title">📌 En Son ${i}. İncelemeni Beğenenler: <b>${rev.title}</b></span>
+                <span class="count-pill">${katList.length} Kişi</span>
+            </div>
+            <div style="display: flex; justify-content: flex-end;">
+                <button id="${btnId}" class="btn-copy" onclick="copyLinks('${btnId}', ${JSON.stringify(katList)})">📋 Linkleri Kopyala (${katList.length})</button>
+            </div>
+            <div class="results-grid">
+                ${katList.map(u => `
+                    <div class="user-card">
+                        <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                        <div class="user-details">
+                            <span class="uname">${u}</span>
+                            <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                            <span class="date-badge ${userDates[u] === 'İnceleme Yok' ? 'muted' : 'green'}">📅 Son İnc: ${userDates[u] || 'Bilinmiyor'}</span>
+                        </div>
+                    </div>
+                `).join("")}
+            </div>
+        `;
+    }
+
+    // Sıfır Çekenler
+    const sifirList = Array.from(sifirCekenler);
+    finalHtml += `
+        <div class="section-header danger">
+            <span class="section-title">🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar</span>
+            <span class="count-pill">${sifirList.length} Kişi</span>
+        </div>
+        <div style="display: flex; justify-content: flex-end;">
+            <button id="copy_sifir" class="btn-copy" onclick="copyLinks('copy_sifir', ${JSON.stringify(sifirList)})">📋 Linkleri Kopyala (${sifirList.length})</button>
+        </div>
+        <div class="results-grid">
+            ${sifirList.map(u => `
+                <div class="user-card">
+                    <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                    <div class="user-details">
+                        <span class="uname">${u}</span>
+                        <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                        <span class="date-badge ${userDates[u] === 'İnceleme Yok' ? 'muted' : 'red'}">🚨 Son İnc: ${userDates[u] || 'Bilinmiyor'}</span>
+                    </div>
+                </div>
+            `).join("")}
+        </div>
+    `;
+
+    out.innerHTML = finalHtml;
+    btn.disabled = false;
+}
+</script>
+
+</body>
+</html>
