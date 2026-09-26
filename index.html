@@ -326,11 +326,13 @@
 </div>
 
 <script>
-const _v = [
+// Maskelenmiş tünel ve hedef yapısı
+const _0xsec = [
     "aHR0cHM6Ly9sZXR0ZXJib3hkLXByb3h5LjExN2VtaXIyMDAyLndvcmtlcnMuZGV2Lz91cmw9",
-    "aHR0cHM6Ly9sZXR0ZXJib3hkLmNvbS8="
+    "aHR0cHM6Ly9sZXR0ZXJib3hkLmNvbS8=",
+    "aHR0cHM6Ly9zLmx0cmJ4ZC5jb20vc3RhdGljL2ltZy9hdmF0YXIyMjAucG5n"
 ];
-const _u = (i) => atob(_v[i]);
+const _t = (idx) => atob(_0xsec[idx]);
 
 function cleanInput(val) {
     val = (val || "").trim();
@@ -343,7 +345,7 @@ function cleanInput(val) {
 
 async function fetchHtml(target) {
     try {
-        const res = await fetch(_u(0) + encodeURIComponent(target));
+        const res = await fetch(_t(0) + encodeURIComponent(target));
         if (res.status === 404) return { s: 404, h: "" };
         if (!res.ok) return { s: res.status, h: "" };
         const text = await res.text();
@@ -404,7 +406,6 @@ function parseLetterboxdDate(str) {
     return { timestamp: 0, trStr: str };
 }
 
-// ---------------- KOTA VE ÖNBELLEK MOTORU ----------------
 function getCacheKey(username) {
     return `lb_cache_${username.toLowerCase()}`;
 }
@@ -441,7 +442,6 @@ function canRunNewScan(username) {
     return validTimestamps.length < 2;
 }
 
-// ---------------- VERİ ÇEKME FONKSİYONLARI ----------------
 function kisileriAyikla(doc, hedefObje) {
     const satirlar = doc.querySelectorAll(".person-summary");
     if (!satirlar || satirlar.length === 0) return 0;
@@ -452,7 +452,7 @@ function kisileriAyikla(doc, hedefObje) {
         if (a) {
             const uName = a.getAttribute("href").replace(/\//g, "").toLowerCase();
             const img = s.querySelector("img");
-            const imgUrl = img && img.getAttribute("src") ? img.getAttribute("src") : "https://s.ltrbxd.com/static/img/avatar220.png";
+            const imgUrl = img && img.getAttribute("src") ? img.getAttribute("src") : _t(2);
             hedefObje[uName] = imgUrl;
             eklenen++;
         }
@@ -466,7 +466,7 @@ async function getFollowingList(user, statusEl) {
 
     statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> 0 kişi bulundu...`;
 
-    const firstUrl = `${_u(1)}${user}/following/`;
+    const firstUrl = `${_t(1)}${user}/following/`;
     let res = await fetchHtml(firstUrl);
     if (res.s !== 200 || !res.h) return following;
 
@@ -482,7 +482,7 @@ async function getFollowingList(user, statusEl) {
 
     while (keepGoing) {
         const batchPages = [currentBatchStart, currentBatchStart + 1, currentBatchStart + 2];
-        const promises = batchPages.map(p => fetchHtml(`${_u(1)}${user}/following/page/${p}/`));
+        const promises = batchPages.map(p => fetchHtml(`${_t(1)}${user}/following/page/${p}/`));
         const results = await Promise.all(promises);
 
         for (let i = 0; i < results.length; i++) {
@@ -545,7 +545,7 @@ async function getTopReviews(user, statusEl) {
     const cleanUser = user.toLowerCase();
 
     statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor...</b>`;
-    let res = await fetchHtml(`${_u(1)}${cleanUser}/films/reviews/`);
+    let res = await fetchHtml(`${_t(1)}${cleanUser}/films/reviews/`);
     if (res.s === 200 && res.h) {
         const doc = parser.parseFromString(res.h, "text/html");
         doc.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
@@ -553,7 +553,7 @@ async function getTopReviews(user, statusEl) {
     }
 
     if (reviews.length < 10) {
-        let resProf = await fetchHtml(`${_u(1)}${cleanUser}/`);
+        let resProf = await fetchHtml(`${_t(1)}${cleanUser}/`);
         if (resProf.s === 200 && resProf.h) {
             const docProf = parser.parseFromString(resProf.h, "text/html");
             extractReviewsFromDoc(docProf, cleanUser, reviews);
@@ -569,12 +569,12 @@ async function getReviewLikers(reviewPath) {
     const parser = new DOMParser();
 
     while (true) {
-        let url = page === 1 ? `${_u(1)}${reviewPath}/likes/` : `${_u(1)}${reviewPath}/likes/page/${page}/`;
+        let url = page === 1 ? `${_t(1)}${reviewPath}/likes/` : `${_t(1)}${reviewPath}/likes/page/${page}/`;
         let res = await fetchHtml(url);
 
         if (res.s !== 200 && page === 1 && reviewPath.split("/").length > 3) {
             const baseParts = reviewPath.split("/").slice(0, 3);
-            url = `${_u(1)}${baseParts.join("/")}/likes/`;
+            url = `${_t(1)}${baseParts.join("/")}/likes/`;
             res = await fetchHtml(url);
         }
 
@@ -606,13 +606,13 @@ async function getReviewLikers(reviewPath) {
 }
 
 async function getUserLastDate(user) {
-    const res = await fetchHtml(`${_u(1)}${user}/films/reviews/`);
+    const res = await fetchHtml(`${_t(1)}${user}/films/reviews/`);
     if (res.s === 200 && res.h) {
         const doc = new DOMParser().parseFromString(res.h, "text/html");
         const t = doc.querySelector("time, span.date, span._nobr, p.attribution time");
         if (t) return parseLetterboxdDate(t.textContent.trim());
     }
-    const resProf = await fetchHtml(`${_u(1)}${user}/`);
+    const resProf = await fetchHtml(`${_t(1)}${user}/`);
     if (resProf.s === 200 && resProf.h) {
         const docP = new DOMParser().parseFromString(resProf.h, "text/html");
         const tP = docP.querySelector("section#recent-activity time, time");
@@ -621,7 +621,6 @@ async function getUserLastDate(user) {
     return { timestamp: 0, trStr: "İnceleme Yok" };
 }
 
-// ---------------- ANALİZ VE YÖNLENDİRME ----------------
 async function analiziBaslat() {
     const inputVal = document.getElementById("username").value;
     const username = cleanInput(inputVal);
@@ -706,13 +705,12 @@ async function analiziBaslat() {
     const adaylarList = Array.from(adaylar);
     const totalAdaylar = adaylarList.length;
 
-    // CANLI İLERLEME SAYACI (10'ar 20'şer akıcı artış efekti)
     let displayCount = 0;
     statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>0 / ${totalAdaylar}</b>`;
     
     const progressInterval = setInterval(() => {
         if (displayCount < totalAdaylar - 3) {
-            displayCount += Math.floor(Math.random() * 6) + 4; // 4 ila 10 arası artar
+            displayCount += Math.floor(Math.random() * 6) + 4;
             if (displayCount > totalAdaylar - 2) displayCount = totalAdaylar - 2;
             statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>${displayCount} / ${totalAdaylar}</b>`;
         }
@@ -736,9 +734,8 @@ async function analiziBaslat() {
 
     let finalHtml = "";
 
-    // 6-10 Arası İncelemeler (0 KİŞİ OLANLAR GİZLENDİ)
+    // 6-10 Arası İncelemeler (0 kişi olanlar temizce gizlenir)
     for (let i = 6; i <= 10; i++) {
-        // Eğer kategori yoksa veya beğenen kişi sayısı 0 ise bu bölümü hiç gösterme
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
 
         const rev = checkReviews[i - 1];
@@ -776,10 +773,10 @@ async function analiziBaslat() {
 
                     return `
                         <div class="user-card">
-                            <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                            <img src="${following[u] || _t(2)}" />
                             <div class="user-details">
                                 <span class="uname">${u}</span>
-                                <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                                <a href="${_t(1)}${u}/" target="_blank">Profile Git ↗</a>
                                 <span class="date-badge ${badgeClass}">${badgePrefix} Son İnc: ${uData.trStr}</span>
                             </div>
                         </div>
@@ -789,7 +786,7 @@ async function analiziBaslat() {
         `;
     }
 
-    // Sıfır Çekenler (Eğer 0 kişi değilse göster)
+    // Sıfır Çekenler (Eğer 0 kişi değilse gösterilir)
     if (sifirCekenler.size > 0) {
         const latestRev = checkReviews[0];
         const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
@@ -826,10 +823,10 @@ async function analiziBaslat() {
 
                     return `
                         <div class="user-card">
-                            <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                            <img src="${following[u] || _t(2)}" />
                             <div class="user-details">
                                 <span class="uname">${u}</span>
-                                <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                                <a href="${_t(1)}${u}/" target="_blank">Profile Git ↗</a>
                                 <span class="date-badge ${badgeClass}">${badgePrefix} Son İnc: ${uData.trStr}</span>
                             </div>
                         </div>
