@@ -132,7 +132,6 @@
             cursor: not-allowed;
         }
 
-        /* Durum Kartı */
         .status-box {
             width: 100%;
             display: none;
@@ -147,7 +146,6 @@
         }
         .status-box b { color: #FFFFFF; }
 
-        /* Kategori Başlık Şeridi */
         .section-header {
             width: 100%;
             background: #111B13;
@@ -185,7 +183,6 @@
             color: var(--brand-danger);
         }
 
-        /* Kullanıcı Kartları Grid */
         .results-grid {
             width: 100%;
             display: grid;
@@ -337,7 +334,6 @@
 </div>
 
 <script>
-// Maskelenmiş tünel ve Letterboxd URL'si
 const _v = [
     "aHR0cHM6Ly9sZXR0ZXJib3hkLXByb3h5LjExN2VtaXIyMDAyLndvcmtlcnMuZGV2Lz91cmw9",
     "aHR0cHM6Ly9sZXR0ZXJib3hkLmNvbS8="
@@ -399,34 +395,65 @@ async function getFollowingList(user, statusEl) {
     return following;
 }
 
-// 2. TEK SEFERDE İLK SAYFADAN 10 İNCELEMEYİ TOPLU ÇEK (Hızlı Çözüm)
+// 2. İNCELEMELERİ KESİN VE GARANTİLİ YAKALAYAN GÜNCELLENMİŞ MOTOR
 async function getTopReviews(user, statusEl) {
-    statusEl.innerHTML = `⚡ <b>Son incelemeleriniz tek seferde taranıyor...</b>`;
-    const res = await fetchHtml(`${_u(1)}${user}/films/reviews/`);
-    if (res.s !== 200 || !res.h) return [];
-
-    const doc = new DOMParser().parseFromString(res.h, "text/html");
-    const items = doc.querySelectorAll("li.film-detail, div.film-detail, li.viewing-poster-container");
     let reviews = [];
+    const parser = new DOMParser();
+    const cleanUser = user.toLowerCase();
+    let page = 1;
 
-    items.forEach(item => {
-        if (reviews.length >= 10) return;
-        const aTags = item.querySelectorAll("a[href]");
-        for (let a of aTags) {
-            let href = a.getAttribute("href").split("?")[0].replace(/^\/|\/$/g, "");
-            let parts = href.split("/");
-            if (parts.length >= 3 && parts[0].toLowerCase() === user.toLowerCase() && parts[1] === "film") {
-                if (!reviews.some(r => r.path === href)) {
-                    const dateTag = item.querySelector("time, span.date, span._nobr");
-                    const dateStr = dateTag ? dateTag.textContent.trim() : "";
-                    const slug = parts[2] || "film";
-                    const title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
-                    reviews.push({ path: href, title: title, date: dateStr });
+    while (reviews.length < 10 && page <= 2) {
+        statusEl.innerHTML = `⚡ <b>Son incelemeleriniz taranıyor:</b> Sayfa ${page}...`;
+        const url = page === 1 ? `${_u(1)}${cleanUser}/films/reviews/` : `${_u(1)}${cleanUser}/films/reviews/page/${page}/`;
+        const res = await fetchHtml(url);
+        if (res.s !== 200 || !res.h) break;
+
+        const doc = parser.parseFromString(res.h, "text/html");
+        doc.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
+
+        // Yöntem A: Doğrudan kartlar
+        const items = doc.querySelectorAll("li.film-detail, div.film-detail, li.viewing-poster-container, div.film-detail-content");
+        
+        items.forEach(item => {
+            if (reviews.length >= 10) return;
+            const aTags = item.querySelectorAll("a[href]");
+            for (let a of aTags) {
+                let href = a.getAttribute("href").split("#")[0].split("?")[0].replace(/^\/|\/$/g, "");
+                let parts = href.split("/");
+                if (parts.length >= 3 && parts[0].toLowerCase() === cleanUser && parts[1] === "film") {
+                    if (!reviews.some(r => r.path === href)) {
+                        const dateTag = item.querySelector("time, span.date, span._nobr, p.attribution time");
+                        const dateStr = dateTag ? dateTag.textContent.trim() : "";
+                        const slug = parts[2] || "film";
+                        const title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+                        reviews.push({ path: href, title: title, date: dateStr });
+                    }
+                    break;
                 }
-                break;
             }
+        });
+
+        // Yöntem B: Kart bulunamadıysa doğrudan sayfadaki tüm linkleri tara (Fallback)
+        if (reviews.length === 0) {
+            const allLinks = doc.querySelectorAll("a[href]");
+            allLinks.forEach(a => {
+                if (reviews.length >= 10) return;
+                let href = a.getAttribute("href").split("#")[0].split("?")[0].replace(/^\/|\/$/g, "");
+                let parts = href.split("/");
+                if (parts.length >= 3 && parts[0].toLowerCase() === cleanUser && parts[1] === "film") {
+                    if (!reviews.some(r => r.path === href)) {
+                        const slug = parts[2] || "film";
+                        const title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+                        reviews.push({ path: href, title: title, date: "" });
+                    }
+                }
+            });
         }
-    });
+
+        const hasNext = doc.querySelector("a.next, .paginate-next a, a[rel='next']");
+        if (!hasNext) break;
+        page++;
+    }
 
     return reviews;
 }
@@ -438,11 +465,21 @@ async function getReviewLikers(reviewPath) {
     const parser = new DOMParser();
 
     while (true) {
-        const url = page === 1 ? `${_u(1)}${reviewPath}/likes/` : `${_u(1)}${reviewPath}/likes/page/${page}/`;
-        const res = await fetchHtml(url);
+        let url = page === 1 ? `${_u(1)}${reviewPath}/likes/` : `${_u(1)}${reviewPath}/likes/page/${page}/`;
+        let res = await fetchHtml(url);
+
+        // Fazla kırılımlı linkler için fallback
+        if (res.s !== 200 && page === 1 && reviewPath.split("/").length > 3) {
+            const baseParts = reviewPath.split("/").slice(0, 3);
+            url = `${_u(1)}${baseParts.join("/")}/likes/`;
+            res = await fetchHtml(url);
+        }
+
         if (res.s !== 200 || !res.h) break;
 
         const doc = parser.parseFromString(res.h, "text/html");
+        doc.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
+
         const cards = doc.querySelectorAll(".person-summary, a.avatar, table.person-table tr");
         if (!cards || cards.length === 0) break;
 
@@ -470,10 +507,9 @@ async function getUserLastDate(user) {
     const res = await fetchHtml(`${_u(1)}${user}/films/reviews/`);
     if (res.s === 200 && res.h) {
         const doc = new DOMParser().parseFromString(res.h, "text/html");
-        const t = doc.querySelector("time, span.date, span._nobr");
+        const t = doc.querySelector("time, span.date, span._nobr, p.attribution time");
         if (t) return t.textContent.trim();
     }
-    // Profil aktivitesine fallback
     const resProf = await fetchHtml(`${_u(1)}${user}/`);
     if (resProf.s === 200 && resProf.h) {
         const docP = new DOMParser().parseFromString(resProf.h, "text/html");
@@ -519,10 +555,10 @@ async function analiziBaslat() {
         return;
     }
 
-    // Adım 2: Son 10 İncelemeyi Toplu Al
+    // Adım 2: Son 10 İncelemeyi Al
     const reviews = await getTopReviews(username, statusBox);
     if (reviews.length === 0) {
-        statusBox.innerHTML = `❌ İnceleme bulunamadı.`;
+        statusBox.innerHTML = `❌ Hesaba ait herhangi bir film incelemesi (review) bulunamadı.`;
         btn.disabled = false;
         return;
     }
@@ -535,11 +571,9 @@ async function analiziBaslat() {
     let reviewLikes = {};
     reviews.forEach((r, idx) => {
         const likers = allLikersResults[idx];
-        // Sadece takip edilenler arasındaki kesişim
         reviewLikes[idx + 1] = new Set([...likers].filter(x => followingSet.has(x)));
     });
 
-    // Kategori eşleştirmesi
     let assigned = new Set();
     let categoryMap = {};
 
@@ -552,7 +586,6 @@ async function analiziBaslat() {
 
     const sifirCekenler = new Set([...followingSet].filter(x => !assigned.has(x)));
 
-    // Filtreye takılan adaylar (6..10. inceleme ve sıfır çekenler)
     let adaylar = new Set();
     for (let i = 6; i <= 10; i++) {
         if (categoryMap[i]) categoryMap[i].forEach(u => adaylar.add(u));
@@ -576,7 +609,6 @@ async function analiziBaslat() {
 
     statusBox.innerHTML = `🎉 <b>Tüm analiz saniyeler içinde tamamlandı!</b>`;
 
-    // Arayüze Yazdır
     let finalHtml = "";
 
     // 6-10 Arası İncelemeler
