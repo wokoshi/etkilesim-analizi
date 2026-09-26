@@ -165,9 +165,18 @@
         }
 
         .section-title {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             color: #FFFFFF;
+            line-height: 1.4;
+        }
+
+        .section-title small {
+            display: block;
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-top: 2px;
         }
 
         .count-pill {
@@ -178,6 +187,8 @@
             font-size: 12px;
             font-weight: 700;
             color: var(--brand-green);
+            white-space: nowrap;
+            margin-left: 8px;
         }
         .section-header.danger .count-pill {
             color: var(--brand-danger);
@@ -243,7 +254,7 @@
         .date-badge {
             display: inline-block;
             font-size: 11px;
-            padding: 2px 6px;
+            padding: 3px 7px;
             border-radius: 4px;
             margin-top: 3px;
             width: fit-content;
@@ -263,24 +274,6 @@
             background: #141C16;
             color: var(--text-secondary);
             border: 1px solid var(--border-subtle);
-        }
-
-        .btn-copy {
-            background: #111A13;
-            color: var(--brand-green);
-            border: 1px solid var(--brand-green);
-            padding: 5px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            margin-bottom: 8px;
-            align-self: flex-end;
-            transition: all 0.2s ease;
-        }
-        .btn-copy:hover {
-            background: var(--brand-green);
-            color: #05140A;
         }
 
         footer.footer-sig {
@@ -361,6 +354,59 @@ async function fetchHtml(target) {
     }
 }
 
+// Türkçe Tarih Çevirici ve Parser
+const MONTHS_MAP = {
+    jan: { num: 0, tr: "Oca" }, feb: { num: 1, tr: "Şub" }, mar: { num: 2, tr: "Mar" },
+    apr: { num: 3, tr: "Nis" }, may: { num: 4, tr: "May" }, jun: { num: 5, tr: "Haz" },
+    jul: { num: 6, tr: "Tem" }, aug: { num: 7, tr: "Ağu" }, sep: { num: 8, tr: "Eyl" },
+    oct: { num: 9, tr: "Eki" }, nov: { num: 10, tr: "Kas" }, dec: { num: 11, tr: "Ara" }
+};
+
+function parseLetterboxdDate(str) {
+    if (!str || str === "İnceleme Yok" || str === "Bilinmiyor") return { timestamp: 0, trStr: str || "Bilinmiyor" };
+
+    const raw = str.toLowerCase().trim();
+    const now = new Date();
+
+    if (raw.includes("just now") || raw.includes("moment") || raw.includes("min") || raw.includes("hour")) {
+        return { timestamp: now.getTime(), trStr: "Bugün" };
+    }
+    if (raw.includes("yesterday")) {
+        const y = new Date(now.getTime() - 86400000);
+        return { timestamp: y.getTime(), trStr: "Dün" };
+    }
+    const daysMatch = raw.match(/(\d+)\s*days?/);
+    if (daysMatch) {
+        const d = new Date(now.getTime() - parseInt(daysMatch[1]) * 86400000);
+        return { timestamp: d.getTime(), trStr: `${daysMatch[1]} gün önce` };
+    }
+
+    // Formatlar: "24 Sep 2026", "Sep 24, 2026", "24 Sep"
+    const cleaned = raw.replace(/(st|nd|rd|th|,)/g, "");
+    const parts = cleaned.split(/\s+/);
+    
+    let day = 1, month = 0, year = now.getFullYear();
+    let foundMonth = false;
+
+    parts.forEach(p => {
+        const sub = p.substring(0, 3);
+        if (MONTHS_MAP[sub]) {
+            month = MONTHS_MAP[sub].num;
+            foundMonth = true;
+        } else if (/^\d{4}$/.test(p)) {             year = parseInt(p);         } else if (/^\d{1,2}$/.test(p)) {
+            day = parseInt(p);
+        }
+    });
+
+    if (foundMonth) {
+        const parsedDate = new Date(year, month, day);
+        const trMonth = Object.values(MONTHS_MAP).find(m => m.num === month).tr;
+        return { timestamp: parsedDate.getTime(), trStr: `${day} ${trMonth} ${year}` };
+    }
+
+    return { timestamp: 0, trStr: str };
+}
+
 // 1. Takip Edilenleri Çek
 async function getFollowingList(user, statusEl) {
     let following = {};
@@ -368,7 +414,7 @@ async function getFollowingList(user, statusEl) {
     let page = 1;
 
     while (true) {
-        statusEl.innerHTML = `⚡ <b>Takip edilenler taranıyor:</b> Sayfa ${page} (${Object.keys(following).length} kişi)`;
+        statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> Sayfa ${page} (${Object.keys(following).length} kişi bulundu)`;
         const url = page === 1 ? `${_u(1)}${user}/following/` : `${_u(1)}${user}/following/page/${page}/`;
         const res = await fetchHtml(url);
         if (res.s !== 200 || !res.h) break;
@@ -390,14 +436,13 @@ async function getFollowingList(user, statusEl) {
 
         if (added < 25) break;
         page++;
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 80));
     }
     return following;
 }
 
-// 2. KESİN VE GARANTİLİ 3 AŞAMALI İNCELEME TOPLAYICI
+// 2. İncelemeleri Topla
 function extractReviewsFromDoc(doc, cleanUser, existingReviews) {
-    // Hem standart DOM elemanlarından hem de genel linklerden tara
     const allLinks = doc.querySelectorAll("a[href]");
     allLinks.forEach(a => {
         if (existingReviews.length >= 10) return;
@@ -406,18 +451,20 @@ function extractReviewsFromDoc(doc, cleanUser, existingReviews) {
         href = href.split("?")[0].split("#")[0].replace(/^\/|\/$/g, "");
         const parts = href.split("/");
         
-        // Şablon: username/film/film-adi/ veya username/film/film-adi/1/
         if (parts.length >= 3 && parts[0].toLowerCase() === cleanUser && parts[1] === "film") {
             if (!existingReviews.some(r => r.path === href)) {
                 const slug = parts[2] || "film";
                 let title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 
-                // Başlık varsa bulmaya çalış
                 const container = a.closest("li, div.film-detail, div.film-detail-content") || a;
                 const dateTag = container ? container.querySelector("time, span.date, span._nobr, p.attribution time") : null;
-                const dateStr = dateTag ? dateTag.textContent.trim() : "";
+                const dateRaw = dateTag ? dateTag.textContent.trim() : "";
 
-                existingReviews.push({ path: href, title: title, date: dateStr });
+                existingReviews.push({ 
+                    path: href, 
+                    title: title, 
+                    dateParsed: parseLetterboxdDate(dateRaw) 
+                });
             }
         }
     });
@@ -428,8 +475,7 @@ async function getTopReviews(user, statusEl) {
     const parser = new DOMParser();
     const cleanUser = user.toLowerCase();
 
-    // 1. Kaynak: /films/reviews/ (Ana inceleme listesi)
-    statusEl.innerHTML = `⚡ <b>Son incelemeleriniz taranıyor:</b> /films/reviews/...`;
+    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz ve paylaşım tarihleri alınıyor...</b>`;
     let res = await fetchHtml(`${_u(1)}${cleanUser}/films/reviews/`);
     if (res.s === 200 && res.h) {
         const doc = parser.parseFromString(res.h, "text/html");
@@ -437,23 +483,11 @@ async function getTopReviews(user, statusEl) {
         extractReviewsFromDoc(doc, cleanUser, reviews);
     }
 
-    // 2. Kaynak: Eğer 10'dan azsa ana profil sayfasına bak (Recent Reviews / Activity)
     if (reviews.length < 10) {
-        statusEl.innerHTML = `⚡ <b>Profil akışı kontrol ediliyor...</b>`;
         let resProf = await fetchHtml(`${_u(1)}${cleanUser}/`);
         if (resProf.s === 200 && resProf.h) {
             const docProf = parser.parseFromString(resProf.h, "text/html");
             extractReviewsFromDoc(docProf, cleanUser, reviews);
-        }
-    }
-
-    // 3. Kaynak: Hala yoksa veya eksikse /films/reviews/page/2/
-    if (reviews.length < 10) {
-        let resP2 = await fetchHtml(`${_u(1)}${cleanUser}/films/reviews/page/2/`);
-        if (resP2.s === 200 && resP2.h) {
-            const docP2 = parser.parseFromString(resP2.h, "text/html");
-            docP2.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
-            extractReviewsFromDoc(docP2, cleanUser, reviews);
         }
     }
 
@@ -470,7 +504,6 @@ async function getReviewLikers(reviewPath) {
         let url = page === 1 ? `${_u(1)}${reviewPath}/likes/` : `${_u(1)}${reviewPath}/likes/page/${page}/`;
         let res = await fetchHtml(url);
 
-        // Kırılımlı linkler (örn /username/film/film-name/1/) için likes adresi bazen 404 olursa ana slug'ı dene
         if (res.s !== 200 && page === 1 && reviewPath.split("/").length > 3) {
             const baseParts = reviewPath.split("/").slice(0, 3);
             url = `${_u(1)}${baseParts.join("/")}/likes/`;
@@ -499,7 +532,7 @@ async function getReviewLikers(reviewPath) {
 
         if (added < 25) break;
         page++;
-        await new Promise(r => setTimeout(r, 80));
+        await new Promise(r => setTimeout(r, 60));
     }
     return likers;
 }
@@ -510,25 +543,15 @@ async function getUserLastDate(user) {
     if (res.s === 200 && res.h) {
         const doc = new DOMParser().parseFromString(res.h, "text/html");
         const t = doc.querySelector("time, span.date, span._nobr, p.attribution time");
-        if (t) return t.textContent.trim();
+        if (t) return parseLetterboxdDate(t.textContent.trim());
     }
     const resProf = await fetchHtml(`${_u(1)}${user}/`);
     if (resProf.s === 200 && resProf.h) {
         const docP = new DOMParser().parseFromString(resProf.h, "text/html");
         const tP = docP.querySelector("section#recent-activity time, time");
-        if (tP) return tP.textContent.trim();
+        if (tP) return parseLetterboxdDate(tP.textContent.trim());
     }
-    return "İnceleme Yok";
-}
-
-function copyLinks(id, userList) {
-    const text = userList.map(u => `https://letterboxd.com/${u}/`).join("\n");
-    navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById(id);
-        const old = btn.textContent;
-        btn.textContent = "✅ Kopyalandı!";
-        setTimeout(() => { btn.textContent = old; }, 1500);
-    });
+    return { timestamp: 0, trStr: "İnceleme Yok" };
 }
 
 async function analiziBaslat() {
@@ -560,13 +583,13 @@ async function analiziBaslat() {
     // Adım 2: Son 10 İncelemeyi Al
     const reviews = await getTopReviews(username, statusBox);
     if (reviews.length === 0) {
-        statusBox.innerHTML = `❌ <b>@${username}</b> hesabına ait herhangi bir film incelemesi (review) tespit edilemedi.`;
+        statusBox.innerHTML = `❌ <b>@${username}</b> hesabına ait herhangi bir film incelemesi tespit edilemedi.`;
         btn.disabled = false;
         return;
     }
 
-    // Adım 3: İnceleme Beğenilerini Paralel Olarak Toplu Tara
-    statusBox.innerHTML = `⚡ <b>${reviews.length} incelemenin beğenileri paralel taranıyor...</b>`;
+    // Adım 3: İnceleme Beğenilerini Tara
+    statusBox.innerHTML = `⏳ <b>İncelemelerinizdeki beğeniler taranıyor...</b>`;
     const likesPromises = reviews.map(r => getReviewLikers(r.path));
     const allLikersResults = await Promise.all(likesPromises);
 
@@ -594,76 +617,126 @@ async function analiziBaslat() {
     }
     sifirCekenler.forEach(u => adaylar.add(u));
 
-    // Adım 4: Adayların Son İnceleme Tarihlerini 6'şarlı Gruplarla Paralel Çek
+    // Adım 4: Kullanıcıların Aktiflik Durumları
     const adaylarList = Array.from(adaylar);
-    statusBox.innerHTML = `⚡ <b>Filtreye takılan ${adaylarList.length} kişinin son aktiflik tarihleri paralel taranıyor...</b>`;
+    statusBox.innerHTML = `⏳ <b>Kullanıcıların aktiflik durumları kontrol ediliyor (${adaylarList.length} kişi)...</b>`;
     
     let userDates = {};
-    const chunkSize = 6;
+    const chunkSize = 8;
     for (let i = 0; i < adaylarList.length; i += chunkSize) {
         const chunk = adaylarList.slice(i, i + chunkSize);
         const dateResults = await Promise.all(chunk.map(u => getUserLastDate(u)));
         chunk.forEach((u, cIdx) => {
             userDates[u] = dateResults[cIdx];
         });
-        statusBox.innerHTML = `⚡ Tarih kontrolü yapılıyor: <b>${Math.min(i + chunkSize, adaylarList.length)} / ${adaylarList.length}</b>`;
+        statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>${Math.min(i + chunkSize, adaylarList.length)} / ${adaylarList.length}</b>`;
     }
 
-    statusBox.innerHTML = `🎉 <b>Tüm analiz saniyeler içinde tamamlandı!</b> (${reviews.length} inceleme tarandı)`;
+    statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
 
     let finalHtml = "";
 
     // 6-10 Arası İncelemeler
     for (let i = 6; i <= 10; i++) {
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
-        const katList = Array.from(categoryMap[i]);
         const rev = reviews[i - 1];
-        const btnId = `copy_rev_${i}`;
+        const revBenchmarkTs = rev.dateParsed ? rev.dateParsed.timestamp : 0;
+        const revDateLabel = rev.dateParsed && rev.dateParsed.trStr ? ` (Paylaşım: ${rev.dateParsed.trStr})` : "";
+
+        // Tarihe göre en yakından en eskiye sırala
+        const katList = Array.from(categoryMap[i]).sort((a, b) => {
+            const tA = userDates[a] ? userDates[a].timestamp : 0;
+            const tB = userDates[b] ? userDates[b].timestamp : 0;
+            return tB - tA;
+        });
 
         finalHtml += `
             <div class="section-header">
-                <span class="section-title">📌 En Son ${i}. İncelemeni Beğenenler: <b>${rev.title}</b></span>
+                <div class="section-title">
+                    📌 En Son ${i}. İncelemeni Beğenenler: <b>${rev.title}</b>
+                    <small>📅 Sizin İnceleme Tarihiniz: ${rev.dateParsed.trStr || 'Bilinmiyor'}</small>
+                </div>
                 <span class="count-pill">${katList.length} Kişi</span>
             </div>
-            <div style="display: flex; justify-content: flex-end;">
-                <button id="${btnId}" class="btn-copy" onclick="copyLinks('${btnId}', ${JSON.stringify(katList)})">📋 Linkleri Kopyala (${katList.length})</button>
-            </div>
             <div class="results-grid">
-                ${katList.map(u => `
-                    <div class="user-card">
-                        <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
-                        <div class="user-details">
-                            <span class="uname">${u}</span>
-                            <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
-                            <span class="date-badge ${userDates[u] === 'İnceleme Yok' ? 'muted' : 'green'}">📅 Son İnc: ${userDates[u] || 'Bilinmiyor'}</span>
+                ${katList.map(u => {
+                    const uData = userDates[u] || { timestamp: 0, trStr: "Bilinmiyor" };
+                    let badgeClass = "muted";
+                    let badgePrefix = "📅";
+
+                    if (uData.trStr === "İnceleme Yok" || uData.trStr === "Bilinmiyor" || uData.timestamp === 0) {
+                        badgeClass = "muted";
+                        badgePrefix = "⚠️";
+                    } else if (revBenchmarkTs > 0 && uData.timestamp > revBenchmarkTs) {
+                        badgeClass = "red";
+                        badgePrefix = "🚨";
+                    } else {
+                        badgeClass = "green";
+                        badgePrefix = "📅";
+                    }
+
+                    return `
+                        <div class="user-card">
+                            <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                            <div class="user-details">
+                                <span class="uname">${u}</span>
+                                <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                                <span class="date-badge ${badgeClass}">${badgePrefix} Son İnc: ${uData.trStr}</span>
+                            </div>
                         </div>
-                    </div>
-                `).join("")}
+                    `;
+                }).join("")}
             </div>
         `;
     }
 
     // Sıfır Çekenler
-    const sifirList = Array.from(sifirCekenler);
+    const latestRev = reviews[0];
+    const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
+    const latestRevLabel = latestRev && latestRev.dateParsed ? latestRev.dateParsed.trStr : "Bilinmiyor";
+
+    const sifirList = Array.from(sifirCekenler).sort((a, b) => {
+        const tA = userDates[a] ? userDates[a].timestamp : 0;
+        const tB = userDates[b] ? userDates[b].timestamp : 0;
+        return tB - tA;
+    });
+
     finalHtml += `
         <div class="section-header danger">
-            <span class="section-title">🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar</span>
+            <div class="section-title">
+                🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar
+                <small>📅 En Son İnceleme Tarihiniz: ${latestRevLabel}</small>
+            </div>
             <span class="count-pill">${sifirList.length} Kişi</span>
         </div>
-        <div style="display: flex; justify-content: flex-end;">
-            <button id="copy_sifir" class="btn-copy" onclick="copyLinks('copy_sifir', ${JSON.stringify(sifirList)})">📋 Linkleri Kopyala (${sifirList.length})</button>
-        </div>
         <div class="results-grid">
-            ${sifirList.map(u => `
-                <div class="user-card">
-                    <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
-                    <div class="user-details">
-                        <span class="uname">${u}</span>
-                        <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
-                        <span class="date-badge ${userDates[u] === 'İnceleme Yok' ? 'muted' : 'red'}">🚨 Son İnc: ${userDates[u] || 'Bilinmiyor'}</span>
+            ${sifirList.map(u => {
+                const uData = userDates[u] || { timestamp: 0, trStr: "Bilinmiyor" };
+                let badgeClass = "muted";
+                let badgePrefix = "🚨";
+
+                if (uData.trStr === "İnceleme Yok" || uData.trStr === "Bilinmiyor" || uData.timestamp === 0) {
+                    badgeClass = "muted";
+                    badgePrefix = "⚠️";
+                } else if (latestRevTs > 0 && uData.timestamp > latestRevTs) {
+                    badgeClass = "red";
+                    badgePrefix = "🚨";
+                } else {
+                    badgeClass = "green";
+                    badgePrefix = "📅";
+                }
+
+                return `
+                    <div class="user-card">
+                        <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                        <div class="user-details">
+                            <span class="uname">${u}</span>
+                            <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                            <span class="date-badge ${badgeClass}">${badgePrefix} Son İnc: ${uData.trStr}</span>
+                        </div>
                     </div>
-                </div>
-            `).join("")}
+                `;
+            }).join("")}
         </div>
     `;
 
