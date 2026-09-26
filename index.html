@@ -165,18 +165,10 @@
         }
 
         .section-title {
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 700;
             color: #FFFFFF;
             line-height: 1.4;
-        }
-
-        .section-title small {
-            display: block;
-            font-weight: 500;
-            color: var(--text-secondary);
-            font-size: 11px;
-            margin-top: 2px;
         }
 
         .count-pill {
@@ -354,7 +346,6 @@ async function fetchHtml(target) {
     }
 }
 
-// Türkçe Tarih Çevirici ve Parser
 const MONTHS_MAP = {
     jan: { num: 0, tr: "Oca" }, feb: { num: 1, tr: "Şub" }, mar: { num: 2, tr: "Mar" },
     apr: { num: 3, tr: "Nis" }, may: { num: 4, tr: "May" }, jun: { num: 5, tr: "Haz" },
@@ -381,7 +372,6 @@ function parseLetterboxdDate(str) {
         return { timestamp: d.getTime(), trStr: `${daysMatch[1]} gün önce` };
     }
 
-    // Formatlar: "24 Sep 2026", "Sep 24, 2026", "24 Sep"
     const cleaned = raw.replace(/(st|nd|rd|th|,)/g, "");
     const parts = cleaned.split(/\s+/);
     
@@ -436,7 +426,7 @@ async function getFollowingList(user, statusEl) {
 
         if (added < 25) break;
         page++;
-        await new Promise(r => setTimeout(r, 80));
+        await new Promise(r => setTimeout(r, 60));
     }
     return following;
 }
@@ -475,7 +465,7 @@ async function getTopReviews(user, statusEl) {
     const parser = new DOMParser();
     const cleanUser = user.toLowerCase();
 
-    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz ve paylaşım tarihleri alınıyor...</b>`;
+    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor...</b>`;
     let res = await fetchHtml(`${_u(1)}${cleanUser}/films/reviews/`);
     if (res.s === 200 && res.h) {
         const doc = parser.parseFromString(res.h, "text/html");
@@ -532,7 +522,7 @@ async function getReviewLikers(reviewPath) {
 
         if (added < 25) break;
         page++;
-        await new Promise(r => setTimeout(r, 60));
+        await new Promise(r => setTimeout(r, 50));
     }
     return likers;
 }
@@ -617,12 +607,12 @@ async function analiziBaslat() {
     }
     sifirCekenler.forEach(u => adaylar.add(u));
 
-    // Adım 4: Kullanıcıların Aktiflik Durumları
+    // Adım 4: 25'li paralel paketlerle ultra hızlı aktiflik taraması
     const adaylarList = Array.from(adaylar);
     statusBox.innerHTML = `⏳ <b>Kullanıcıların aktiflik durumları kontrol ediliyor (${adaylarList.length} kişi)...</b>`;
     
     let userDates = {};
-    const chunkSize = 8;
+    const chunkSize = 25;
     for (let i = 0; i < adaylarList.length; i += chunkSize) {
         const chunk = adaylarList.slice(i, i + chunkSize);
         const dateResults = await Promise.all(chunk.map(u => getUserLastDate(u)));
@@ -641,9 +631,7 @@ async function analiziBaslat() {
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
         const rev = reviews[i - 1];
         const revBenchmarkTs = rev.dateParsed ? rev.dateParsed.timestamp : 0;
-        const revDateLabel = rev.dateParsed && rev.dateParsed.trStr ? ` (Paylaşım: ${rev.dateParsed.trStr})` : "";
 
-        // Tarihe göre en yakından en eskiye sırala
         const katList = Array.from(categoryMap[i]).sort((a, b) => {
             const tA = userDates[a] ? userDates[a].timestamp : 0;
             const tB = userDates[b] ? userDates[b].timestamp : 0;
@@ -654,7 +642,6 @@ async function analiziBaslat() {
             <div class="section-header">
                 <div class="section-title">
                     📌 En Son ${i}. İncelemeni Beğenenler: <b>${rev.title}</b>
-                    <small>📅 Sizin İnceleme Tarihiniz: ${rev.dateParsed.trStr || 'Bilinmiyor'}</small>
                 </div>
                 <span class="count-pill">${katList.length} Kişi</span>
             </div>
@@ -693,7 +680,6 @@ async function analiziBaslat() {
     // Sıfır Çekenler
     const latestRev = reviews[0];
     const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
-    const latestRevLabel = latestRev && latestRev.dateParsed ? latestRev.dateParsed.trStr : "Bilinmiyor";
 
     const sifirList = Array.from(sifirCekenler).sort((a, b) => {
         const tA = userDates[a] ? userDates[a].timestamp : 0;
@@ -705,7 +691,6 @@ async function analiziBaslat() {
         <div class="section-header danger">
             <div class="section-title">
                 🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar
-                <small>📅 En Son İnceleme Tarihiniz: ${latestRevLabel}</small>
             </div>
             <span class="count-pill">${sifirList.length} Kişi</span>
         </div>
