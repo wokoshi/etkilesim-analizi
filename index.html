@@ -460,14 +460,12 @@ function kisileriAyikla(doc, hedefObje) {
     return eklenen;
 }
 
-// 3'LÜ PARALEL DEMET İLE HIZLANDIRILMIŞ TAKİP EDİLENLER MOTORU
 async function getFollowingList(user, statusEl) {
     let following = {};
     const parser = new DOMParser();
 
     statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> 0 kişi bulundu...`;
 
-    // 1. Sayfa
     const firstUrl = `${_u(1)}${user}/following/`;
     let res = await fetchHtml(firstUrl);
     if (res.s !== 200 || !res.h) return following;
@@ -479,7 +477,6 @@ async function getFollowingList(user, statusEl) {
 
     if (count < 25) return following;
 
-    // Kalan sayfalar 3'erli paralel çekim
     let currentBatchStart = 2;
     let keepGoing = true;
 
@@ -624,7 +621,7 @@ async function getUserLastDate(user) {
     return { timestamp: 0, trStr: "İnceleme Yok" };
 }
 
-// ---------------- ANALİZ VE KORUMA MOTORU ----------------
+// ---------------- ANALİZ VE YÖNLENDİRME ----------------
 async function analiziBaslat() {
     const inputVal = document.getElementById("username").value;
     const username = cleanInput(inputVal);
@@ -644,7 +641,6 @@ async function analiziBaslat() {
     const cachedData = getCacheData(username);
     const scanAllowed = canRunNewScan(username);
 
-    // KURAL A: 24 Saatte 2 Tarama Dolduysa Sessizce Kayıtlı Sonucu Göster
     if (!scanAllowed && cachedData && cachedData.htmlResult) {
         statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
         out.innerHTML = cachedData.htmlResult;
@@ -652,7 +648,6 @@ async function analiziBaslat() {
         return;
     }
 
-    // KURAL B: Sadece 1. İncelemeyi Çekip Parmak İzi Kontrolü Yap
     statusBox.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor...</b>`;
     const checkReviews = await getTopReviews(username, statusBox);
     
@@ -664,7 +659,6 @@ async function analiziBaslat() {
 
     const currentLatestSlug = checkReviews[0].slug;
 
-    // Eğer son film önceki taramayla aynıysa ve elimizde kayıt varsa SESSİZCE eski analizi bas
     if (cachedData && cachedData.latestFilmSlug === currentLatestSlug && cachedData.htmlResult) {
         statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
         out.innerHTML = cachedData.htmlResult;
@@ -672,7 +666,6 @@ async function analiziBaslat() {
         return;
     }
 
-    // YENİ FİLM VAR VEYA İLK TARAMA: 3'lü paketle turbo takipçi çekimi
     const following = await getFollowingList(username, statusBox);
     const followingSet = new Set(Object.keys(following));
 
@@ -710,28 +703,44 @@ async function analiziBaslat() {
     }
     sifirCekenler.forEach(u => adaylar.add(u));
 
-    // 100'LÜ TURBO PARALEL PAKETLE AKTİFLİK KONTROLÜ
     const adaylarList = Array.from(adaylar);
-    statusBox.innerHTML = `⏳ <b>Kullanıcıların aktiflik durumları kontrol ediliyor (${adaylarList.length} kişi)...</b>`;
+    const totalAdaylar = adaylarList.length;
+
+    // CANLI İLERLEME SAYACI (10'ar 20'şer akıcı artış efekti)
+    let displayCount = 0;
+    statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>0 / ${totalAdaylar}</b>`;
     
+    const progressInterval = setInterval(() => {
+        if (displayCount < totalAdaylar - 3) {
+            displayCount += Math.floor(Math.random() * 6) + 4; // 4 ila 10 arası artar
+            if (displayCount > totalAdaylar - 2) displayCount = totalAdaylar - 2;
+            statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>${displayCount} / ${totalAdaylar}</b>`;
+        }
+    }, 120);
+
     let userDates = {};
     const chunkSize = 100;
-    for (let i = 0; i < adaylarList.length; i += chunkSize) {
+    for (let i = 0; i < totalAdaylar; i += chunkSize) {
         const chunk = adaylarList.slice(i, i + chunkSize);
         const dateResults = await Promise.all(chunk.map(u => getUserLastDate(u)));
         chunk.forEach((u, cIdx) => {
             userDates[u] = dateResults[cIdx];
         });
-        statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>${Math.min(i + chunkSize, adaylarList.length)} / ${adaylarList.length}</b>`;
     }
+
+    clearInterval(progressInterval);
+    statusBox.innerHTML = `⏳ Kullanıcıların aktiflik durumları kontrol ediliyor: <b>${totalAdaylar} / ${totalAdaylar}</b>`;
+    await new Promise(r => setTimeout(r, 200));
 
     statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
 
     let finalHtml = "";
 
-    // 6-10 Arası İncelemeler
+    // 6-10 Arası İncelemeler (0 KİŞİ OLANLAR GİZLENDİ)
     for (let i = 6; i <= 10; i++) {
+        // Eğer kategori yoksa veya beğenen kişi sayısı 0 ise bu bölümü hiç gösterme
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
+
         const rev = checkReviews[i - 1];
         const revBenchmarkTs = rev.dateParsed ? rev.dateParsed.timestamp : 0;
 
@@ -780,53 +789,55 @@ async function analiziBaslat() {
         `;
     }
 
-    // Sıfır Çekenler
-    const latestRev = checkReviews[0];
-    const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
+    // Sıfır Çekenler (Eğer 0 kişi değilse göster)
+    if (sifirCekenler.size > 0) {
+        const latestRev = checkReviews[0];
+        const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
 
-    const sifirList = Array.from(sifirCekenler).sort((a, b) => {
-        const tA = userDates[a] ? userDates[a].timestamp : 0;
-        const tB = userDates[b] ? userDates[b].timestamp : 0;
-        return tB - tA;
-    });
+        const sifirList = Array.from(sifirCekenler).sort((a, b) => {
+            const tA = userDates[a] ? userDates[a].timestamp : 0;
+            const tB = userDates[b] ? userDates[b].timestamp : 0;
+            return tB - tA;
+        });
 
-    finalHtml += `
-        <div class="section-header danger">
-            <div class="section-title">
-                🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar
+        finalHtml += `
+            <div class="section-header danger">
+                <div class="section-title">
+                    🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar
+                </div>
+                <span class="count-pill">${sifirList.length} Kişi</span>
             </div>
-            <span class="count-pill">${sifirList.length} Kişi</span>
-        </div>
-        <div class="results-grid">
-            ${sifirList.map(u => {
-                const uData = userDates[u] || { timestamp: 0, trStr: "Bilinmiyor" };
-                let badgeClass = "muted";
-                let badgePrefix = "🚨";
+            <div class="results-grid">
+                ${sifirList.map(u => {
+                    const uData = userDates[u] || { timestamp: 0, trStr: "Bilinmiyor" };
+                    let badgeClass = "muted";
+                    let badgePrefix = "🚨";
 
-                if (uData.trStr === "İnceleme Yok" || uData.trStr === "Bilinmiyor" || uData.timestamp === 0) {
-                    badgeClass = "muted";
-                    badgePrefix = "⚠️";
-                } else if (latestRevTs > 0 && uData.timestamp > latestRevTs) {
-                    badgeClass = "red";
-                    badgePrefix = "🚨";
-                } else {
-                    badgeClass = "green";
-                    badgePrefix = "📅";
-                }
+                    if (uData.trStr === "İnceleme Yok" || uData.trStr === "Bilinmiyor" || uData.timestamp === 0) {
+                        badgeClass = "muted";
+                        badgePrefix = "⚠️";
+                    } else if (latestRevTs > 0 && uData.timestamp > latestRevTs) {
+                        badgeClass = "red";
+                        badgePrefix = "🚨";
+                    } else {
+                        badgeClass = "green";
+                        badgePrefix = "📅";
+                    }
 
-                return `
-                    <div class="user-card">
-                        <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
-                        <div class="user-details">
-                            <span class="uname">${u}</span>
-                            <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
-                            <span class="date-badge ${badgeClass}">${badgePrefix} Son İnc: ${uData.trStr}</span>
+                    return `
+                        <div class="user-card">
+                            <img src="${following[u] || 'https://s.ltrbxd.com/static/img/avatar220.png'}" />
+                            <div class="user-details">
+                                <span class="uname">${u}</span>
+                                <a href="https://letterboxd.com/${u}/" target="_blank">Profile Git ↗</a>
+                                <span class="date-badge ${badgeClass}">${badgePrefix} Son İnc: ${uData.trStr}</span>
+                            </div>
                         </div>
-                    </div>
-                `;
-            }).join("")}
-        </div>
-    `;
+                    `;
+                }).join("")}
+            </div>
+        `;
+    }
 
     out.innerHTML = finalHtml;
     saveCacheData(username, currentLatestSlug, finalHtml);
