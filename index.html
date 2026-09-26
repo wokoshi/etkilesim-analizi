@@ -404,6 +404,44 @@ function parseLetterboxdDate(str) {
     return { timestamp: 0, trStr: str };
 }
 
+// ---------------- KOTA VE ÖNBELLEK MOTORU ----------------
+function getCacheKey(username) {
+    return `lb_cache_${username.toLowerCase()}`;
+}
+
+function getCacheData(username) {
+    try {
+        const raw = localStorage.getItem(getCacheKey(username));
+        return raw ? JSON.parse(raw) : null;
+    } catch(e) { return null; }
+}
+
+function saveCacheData(username, latestFilmSlug, htmlResult) {
+    try {
+        const now = Date.now();
+        let cache = getCacheData(username) || { timestamps: [] };
+        
+        cache.timestamps = (cache.timestamps || []).filter(t => (now - t) < 24 * 60 * 60 * 1000);
+        cache.timestamps.push(now);
+        cache.latestFilmSlug = latestFilmSlug;
+        cache.htmlResult = htmlResult;
+        cache.lastSaved = now;
+
+        localStorage.setItem(getCacheKey(username), JSON.stringify(cache));
+    } catch(e) {}
+}
+
+function canRunNewScan(username) {
+    const cache = getCacheData(username);
+    if (!cache) return true;
+
+    const now = Date.now();
+    const validTimestamps = (cache.timestamps || []).filter(t => (now - t) < 24 * 60 * 60 * 1000);
+
+    return validTimestamps.length < 2;
+}
+
+// ---------------- VERİ ÇEKME FONKSİYONLARI ----------------
 async function getFollowingList(user, statusEl) {
     let following = {};
     const parser = new DOMParser();
@@ -457,6 +495,7 @@ function extractReviewsFromDoc(doc, cleanUser, existingReviews) {
 
                 existingReviews.push({ 
                     path: href, 
+                    slug: slug,
                     title: title, 
                     dateParsed: parseLetterboxdDate(dateRaw) 
                 });
@@ -547,6 +586,7 @@ async function getUserLastDate(user) {
     return { timestamp: 0, trStr: "İnceleme Yok" };
 }
 
+// ---------------- ANALİZ VE AKILLI YÖNLENDİRME MOTORU ----------------
 async function analiziBaslat() {
     const inputVal = document.getElementById("username").value;
     const username = cleanInput(inputVal);
@@ -563,6 +603,38 @@ async function analiziBaslat() {
     out.innerHTML = "";
     statusBox.style.display = "block";
 
+    const cachedData = getCacheData(username);
+    const scanAllowed = canRunNewScan(username);
+
+    // KURAL A: 24 Saatte 2 Tarama Dolduysa Sessizce Kayıtlı Sonucu Göster (Fark ettirme)
+    if (!scanAllowed && cachedData && cachedData.htmlResult) {
+        statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
+        out.innerHTML = cachedData.htmlResult;
+        btn.disabled = false;
+        return;
+    }
+
+    // KURAL B: Sadece 1. İncelemeyi Çekip Parmak İzi Kontrolü Yap
+    statusBox.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor...</b>`;
+    const checkReviews = await getTopReviews(username, statusBox);
+    
+    if (checkReviews.length === 0) {
+        statusBox.innerHTML = `❌ <b>@${username}</b> hesabına ait herhangi bir film incelemesi tespit edilemedi.`;
+        btn.disabled = false;
+        return;
+    }
+
+    const currentLatestSlug = checkReviews[0].slug;
+
+    // Eğer son film önceki taramayla aynıysa ve elimizde kayıt varsa SESSİZCE eski analizi bas
+    if (cachedData && cachedData.latestFilmSlug === currentLatestSlug && cachedData.htmlResult) {
+        statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
+        out.innerHTML = cachedData.htmlResult;
+        btn.disabled = false;
+        return;
+    }
+
+    // YENİ FİLM VAR VEYA İLK TARAMA: Gerçek tam tarama başlatılıyor
     const following = await getFollowingList(username, statusBox);
     const followingSet = new Set(Object.keys(following));
 
@@ -572,19 +644,12 @@ async function analiziBaslat() {
         return;
     }
 
-    const reviews = await getTopReviews(username, statusBox);
-    if (reviews.length === 0) {
-        statusBox.innerHTML = `❌ <b>@${username}</b> hesabına ait herhangi bir film incelemesi tespit edilemedi.`;
-        btn.disabled = false;
-        return;
-    }
-
     statusBox.innerHTML = `⏳ <b>İncelemelerinizdeki beğeniler taranıyor...</b>`;
-    const likesPromises = reviews.map(r => getReviewLikers(r.path));
+    const likesPromises = checkReviews.map(r => getReviewLikers(r.path));
     const allLikersResults = await Promise.all(likesPromises);
 
     let reviewLikes = {};
-    reviews.forEach((r, idx) => {
+    checkReviews.forEach((r, idx) => {
         const likers = allLikersResults[idx];
         reviewLikes[idx + 1] = new Set([...likers].filter(x => followingSet.has(x)));
     });
@@ -592,7 +657,7 @@ async function analiziBaslat() {
     let assigned = new Set();
     let categoryMap = {};
 
-    for (let i = 1; i <= reviews.length; i++) {
+    for (let i = 1; i <= checkReviews.length; i++) {
         let cur = reviewLikes[i];
         let fresh = new Set([...cur].filter(x => !assigned.has(x)));
         categoryMap[i] = fresh;
@@ -625,9 +690,10 @@ async function analiziBaslat() {
 
     let finalHtml = "";
 
+    // 6-10 Arası İncelemeler
     for (let i = 6; i <= 10; i++) {
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
-        const rev = reviews[i - 1];
+        const rev = checkReviews[i - 1];
         const revBenchmarkTs = rev.dateParsed ? rev.dateParsed.timestamp : 0;
 
         const katList = Array.from(categoryMap[i]).sort((a, b) => {
@@ -675,7 +741,8 @@ async function analiziBaslat() {
         `;
     }
 
-    const latestRev = reviews[0];
+    // Sıfır Çekenler
+    const latestRev = checkReviews[0];
     const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
 
     const sifirList = Array.from(sifirCekenler).sort((a, b) => {
@@ -723,6 +790,7 @@ async function analiziBaslat() {
     `;
 
     out.innerHTML = finalHtml;
+    saveCacheData(username, currentLatestSlug, finalHtml);
     btn.disabled = false;
 }
 </script>
