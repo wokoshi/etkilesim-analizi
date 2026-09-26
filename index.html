@@ -395,64 +395,66 @@ async function getFollowingList(user, statusEl) {
     return following;
 }
 
-// 2. İNCELEMELERİ KESİN VE GARANTİLİ YAKALAYAN GÜNCELLENMİŞ MOTOR
+// 2. KESİN VE GARANTİLİ 3 AŞAMALI İNCELEME TOPLAYICI
+function extractReviewsFromDoc(doc, cleanUser, existingReviews) {
+    // Hem standart DOM elemanlarından hem de genel linklerden tara
+    const allLinks = doc.querySelectorAll("a[href]");
+    allLinks.forEach(a => {
+        if (existingReviews.length >= 10) return;
+        let href = a.getAttribute("href");
+        if (!href) return;
+        href = href.split("?")[0].split("#")[0].replace(/^\/|\/$/g, "");
+        const parts = href.split("/");
+        
+        // Şablon: username/film/film-adi/ veya username/film/film-adi/1/
+        if (parts.length >= 3 && parts[0].toLowerCase() === cleanUser && parts[1] === "film") {
+            if (!existingReviews.some(r => r.path === href)) {
+                const slug = parts[2] || "film";
+                let title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+
+                // Başlık varsa bulmaya çalış
+                const container = a.closest("li, div.film-detail, div.film-detail-content") || a;
+                const dateTag = container ? container.querySelector("time, span.date, span._nobr, p.attribution time") : null;
+                const dateStr = dateTag ? dateTag.textContent.trim() : "";
+
+                existingReviews.push({ path: href, title: title, date: dateStr });
+            }
+        }
+    });
+}
+
 async function getTopReviews(user, statusEl) {
     let reviews = [];
     const parser = new DOMParser();
     const cleanUser = user.toLowerCase();
-    let page = 1;
 
-    while (reviews.length < 10 && page <= 2) {
-        statusEl.innerHTML = `⚡ <b>Son incelemeleriniz taranıyor:</b> Sayfa ${page}...`;
-        const url = page === 1 ? `${_u(1)}${cleanUser}/films/reviews/` : `${_u(1)}${cleanUser}/films/reviews/page/${page}/`;
-        const res = await fetchHtml(url);
-        if (res.s !== 200 || !res.h) break;
-
+    // 1. Kaynak: /films/reviews/ (Ana inceleme listesi)
+    statusEl.innerHTML = `⚡ <b>Son incelemeleriniz taranıyor:</b> /films/reviews/...`;
+    let res = await fetchHtml(`${_u(1)}${cleanUser}/films/reviews/`);
+    if (res.s === 200 && res.h) {
         const doc = parser.parseFromString(res.h, "text/html");
         doc.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
+        extractReviewsFromDoc(doc, cleanUser, reviews);
+    }
 
-        // Yöntem A: Doğrudan kartlar
-        const items = doc.querySelectorAll("li.film-detail, div.film-detail, li.viewing-poster-container, div.film-detail-content");
-        
-        items.forEach(item => {
-            if (reviews.length >= 10) return;
-            const aTags = item.querySelectorAll("a[href]");
-            for (let a of aTags) {
-                let href = a.getAttribute("href").split("#")[0].split("?")[0].replace(/^\/|\/$/g, "");
-                let parts = href.split("/");
-                if (parts.length >= 3 && parts[0].toLowerCase() === cleanUser && parts[1] === "film") {
-                    if (!reviews.some(r => r.path === href)) {
-                        const dateTag = item.querySelector("time, span.date, span._nobr, p.attribution time");
-                        const dateStr = dateTag ? dateTag.textContent.trim() : "";
-                        const slug = parts[2] || "film";
-                        const title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
-                        reviews.push({ path: href, title: title, date: dateStr });
-                    }
-                    break;
-                }
-            }
-        });
-
-        // Yöntem B: Kart bulunamadıysa doğrudan sayfadaki tüm linkleri tara (Fallback)
-        if (reviews.length === 0) {
-            const allLinks = doc.querySelectorAll("a[href]");
-            allLinks.forEach(a => {
-                if (reviews.length >= 10) return;
-                let href = a.getAttribute("href").split("#")[0].split("?")[0].replace(/^\/|\/$/g, "");
-                let parts = href.split("/");
-                if (parts.length >= 3 && parts[0].toLowerCase() === cleanUser && parts[1] === "film") {
-                    if (!reviews.some(r => r.path === href)) {
-                        const slug = parts[2] || "film";
-                        const title = slug.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
-                        reviews.push({ path: href, title: title, date: "" });
-                    }
-                }
-            });
+    // 2. Kaynak: Eğer 10'dan azsa ana profil sayfasına bak (Recent Reviews / Activity)
+    if (reviews.length < 10) {
+        statusEl.innerHTML = `⚡ <b>Profil akışı kontrol ediliyor...</b>`;
+        let resProf = await fetchHtml(`${_u(1)}${cleanUser}/`);
+        if (resProf.s === 200 && resProf.h) {
+            const docProf = parser.parseFromString(resProf.h, "text/html");
+            extractReviewsFromDoc(docProf, cleanUser, reviews);
         }
+    }
 
-        const hasNext = doc.querySelector("a.next, .paginate-next a, a[rel='next']");
-        if (!hasNext) break;
-        page++;
+    // 3. Kaynak: Hala yoksa veya eksikse /films/reviews/page/2/
+    if (reviews.length < 10) {
+        let resP2 = await fetchHtml(`${_u(1)}${cleanUser}/films/reviews/page/2/`);
+        if (resP2.s === 200 && resP2.h) {
+            const docP2 = parser.parseFromString(resP2.h, "text/html");
+            docP2.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
+            extractReviewsFromDoc(docP2, cleanUser, reviews);
+        }
     }
 
     return reviews;
@@ -468,7 +470,7 @@ async function getReviewLikers(reviewPath) {
         let url = page === 1 ? `${_u(1)}${reviewPath}/likes/` : `${_u(1)}${reviewPath}/likes/page/${page}/`;
         let res = await fetchHtml(url);
 
-        // Fazla kırılımlı linkler için fallback
+        // Kırılımlı linkler (örn /username/film/film-name/1/) için likes adresi bazen 404 olursa ana slug'ı dene
         if (res.s !== 200 && page === 1 && reviewPath.split("/").length > 3) {
             const baseParts = reviewPath.split("/").slice(0, 3);
             url = `${_u(1)}${baseParts.join("/")}/likes/`;
@@ -558,7 +560,7 @@ async function analiziBaslat() {
     // Adım 2: Son 10 İncelemeyi Al
     const reviews = await getTopReviews(username, statusBox);
     if (reviews.length === 0) {
-        statusBox.innerHTML = `❌ Hesaba ait herhangi bir film incelemesi (review) bulunamadı.`;
+        statusBox.innerHTML = `❌ <b>@${username}</b> hesabına ait herhangi bir film incelemesi (review) tespit edilemedi.`;
         btn.disabled = false;
         return;
     }
@@ -607,7 +609,7 @@ async function analiziBaslat() {
         statusBox.innerHTML = `⚡ Tarih kontrolü yapılıyor: <b>${Math.min(i + chunkSize, adaylarList.length)} / ${adaylarList.length}</b>`;
     }
 
-    statusBox.innerHTML = `🎉 <b>Tüm analiz saniyeler içinde tamamlandı!</b>`;
+    statusBox.innerHTML = `🎉 <b>Tüm analiz saniyeler içinde tamamlandı!</b> (${reviews.length} inceleme tarandı)`;
 
     let finalHtml = "";
 
