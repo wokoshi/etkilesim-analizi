@@ -442,36 +442,74 @@ function canRunNewScan(username) {
 }
 
 // ---------------- VERİ ÇEKME FONKSİYONLARI ----------------
+function kisileriAyikla(doc, hedefObje) {
+    const satirlar = doc.querySelectorAll(".person-summary");
+    if (!satirlar || satirlar.length === 0) return 0;
+
+    let eklenen = 0;
+    satirlar.forEach(s => {
+        const a = s.querySelector("a.name");
+        if (a) {
+            const uName = a.getAttribute("href").replace(/\//g, "").toLowerCase();
+            const img = s.querySelector("img");
+            const imgUrl = img && img.getAttribute("src") ? img.getAttribute("src") : "https://s.ltrbxd.com/static/img/avatar220.png";
+            hedefObje[uName] = imgUrl;
+            eklenen++;
+        }
+    });
+    return eklenen;
+}
+
+// 3'LÜ PARALEL DEMET İLE HIZLANDIRILMIŞ TAKİP EDİLENLER MOTORU
 async function getFollowingList(user, statusEl) {
     let following = {};
     const parser = new DOMParser();
-    let page = 1;
 
-    while (true) {
-        statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> Sayfa ${page} (${Object.keys(following).length} kişi bulundu)`;
-        const url = page === 1 ? `${_u(1)}${user}/following/` : `${_u(1)}${user}/following/page/${page}/`;
-        const res = await fetchHtml(url);
-        if (res.s !== 200 || !res.h) break;
+    statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> 0 kişi bulundu...`;
 
-        const doc = parser.parseFromString(res.h, "text/html");
-        const items = doc.querySelectorAll(".person-summary");
-        if (!items || items.length === 0) break;
+    // 1. Sayfa
+    const firstUrl = `${_u(1)}${user}/following/`;
+    let res = await fetchHtml(firstUrl);
+    if (res.s !== 200 || !res.h) return following;
 
-        let added = 0;
-        items.forEach(el => {
-            const a = el.querySelector("a.name");
-            if (a) {
-                const uname = a.getAttribute("href").replace(/\//g, "").toLowerCase();
-                const img = el.querySelector("img");
-                following[uname] = img && img.getAttribute("src") ? img.getAttribute("src") : "https://s.ltrbxd.com/static/img/avatar220.png";
-                added++;
+    const doc = parser.parseFromString(res.h, "text/html");
+    const count = kisileriAyikla(doc, following);
+
+    statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> ${Object.keys(following).length} kişi bulundu...`;
+
+    if (count < 25) return following;
+
+    // Kalan sayfalar 3'erli paralel çekim
+    let currentBatchStart = 2;
+    let keepGoing = true;
+
+    while (keepGoing) {
+        const batchPages = [currentBatchStart, currentBatchStart + 1, currentBatchStart + 2];
+        const promises = batchPages.map(p => fetchHtml(`${_u(1)}${user}/following/page/${p}/`));
+        const results = await Promise.all(promises);
+
+        for (let i = 0; i < results.length; i++) {
+            const pageRes = results[i];
+            if (pageRes.s !== 200 || !pageRes.h) {
+                keepGoing = false;
+                break;
             }
-        });
 
-        if (added < 25) break;
-        page++;
+            const pDoc = parser.parseFromString(pageRes.h, "text/html");
+            const added = kisileriAyikla(pDoc, following);
+
+            statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> ${Object.keys(following).length} kişi bulundu...`;
+
+            if (added < 25) {
+                keepGoing = false;
+                break;
+            }
+        }
+
+        currentBatchStart += 3;
         await new Promise(r => setTimeout(r, 40));
     }
+
     return following;
 }
 
@@ -586,7 +624,7 @@ async function getUserLastDate(user) {
     return { timestamp: 0, trStr: "İnceleme Yok" };
 }
 
-// ---------------- ANALİZ VE AKILLI YÖNLENDİRME MOTORU ----------------
+// ---------------- ANALİZ VE KORUMA MOTORU ----------------
 async function analiziBaslat() {
     const inputVal = document.getElementById("username").value;
     const username = cleanInput(inputVal);
@@ -606,7 +644,7 @@ async function analiziBaslat() {
     const cachedData = getCacheData(username);
     const scanAllowed = canRunNewScan(username);
 
-    // KURAL A: 24 Saatte 2 Tarama Dolduysa Sessizce Kayıtlı Sonucu Göster (Fark ettirme)
+    // KURAL A: 24 Saatte 2 Tarama Dolduysa Sessizce Kayıtlı Sonucu Göster
     if (!scanAllowed && cachedData && cachedData.htmlResult) {
         statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
         out.innerHTML = cachedData.htmlResult;
@@ -634,7 +672,7 @@ async function analiziBaslat() {
         return;
     }
 
-    // YENİ FİLM VAR VEYA İLK TARAMA: Gerçek tam tarama başlatılıyor
+    // YENİ FİLM VAR VEYA İLK TARAMA: 3'lü paketle turbo takipçi çekimi
     const following = await getFollowingList(username, statusBox);
     const followingSet = new Set(Object.keys(following));
 
@@ -672,11 +710,12 @@ async function analiziBaslat() {
     }
     sifirCekenler.forEach(u => adaylar.add(u));
 
+    // 100'LÜ TURBO PARALEL PAKETLE AKTİFLİK KONTROLÜ
     const adaylarList = Array.from(adaylar);
     statusBox.innerHTML = `⏳ <b>Kullanıcıların aktiflik durumları kontrol ediliyor (${adaylarList.length} kişi)...</b>`;
     
     let userDates = {};
-    const chunkSize = 50;
+    const chunkSize = 100;
     for (let i = 0; i < adaylarList.length; i += chunkSize) {
         const chunk = adaylarList.slice(i, i + chunkSize);
         const dateResults = await Promise.all(chunk.map(u => getUserLastDate(u)));
