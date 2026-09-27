@@ -326,7 +326,6 @@
 </div>
 
 <script>
-// Maskelenmiş tünel ve hedef yapısı
 const _0xsec = [
     "aHR0cHM6Ly9sZXR0ZXJib3hkLXByb3h5LjExN2VtaXIyMDAyLndvcmtlcnMuZGV2Lz91cmw9",
     "aHR0cHM6Ly9sZXR0ZXJib3hkLmNvbS8=",
@@ -420,26 +419,13 @@ function getCacheData(username) {
 function saveCacheData(username, latestFilmSlug, htmlResult) {
     try {
         const now = Date.now();
-        let cache = getCacheData(username) || { timestamps: [] };
-        
-        cache.timestamps = (cache.timestamps || []).filter(t => (now - t) < 24 * 60 * 60 * 1000);
-        cache.timestamps.push(now);
-        cache.latestFilmSlug = latestFilmSlug;
-        cache.htmlResult = htmlResult;
-        cache.lastSaved = now;
-
+        let cache = {
+            lastSaved: now,
+            latestFilmSlug: latestFilmSlug,
+            htmlResult: htmlResult
+        };
         localStorage.setItem(getCacheKey(username), JSON.stringify(cache));
     } catch(e) {}
-}
-
-function canRunNewScan(username) {
-    const cache = getCacheData(username);
-    if (!cache) return true;
-
-    const now = Date.now();
-    const validTimestamps = (cache.timestamps || []).filter(t => (now - t) < 24 * 60 * 60 * 1000);
-
-    return validTimestamps.length < 2;
 }
 
 function kisileriAyikla(doc, hedefObje) {
@@ -513,7 +499,7 @@ async function getFollowingList(user, statusEl) {
 function extractReviewsFromDoc(doc, cleanUser, existingReviews) {
     const allLinks = doc.querySelectorAll("a[href]");
     allLinks.forEach(a => {
-        if (existingReviews.length >= 10) return;
+        if (existingReviews.length >= 15) return;
         let href = a.getAttribute("href");
         if (!href) return;
         href = href.split("?")[0].split("#")[0].replace(/^\/|\/$/g, "");
@@ -552,11 +538,20 @@ async function getTopReviews(user, statusEl) {
         extractReviewsFromDoc(doc, cleanUser, reviews);
     }
 
-    if (reviews.length < 10) {
+    if (reviews.length < 15) {
         let resProf = await fetchHtml(`${_t(1)}${cleanUser}/`);
         if (resProf.s === 200 && resProf.h) {
             const docProf = parser.parseFromString(resProf.h, "text/html");
             extractReviewsFromDoc(docProf, cleanUser, reviews);
+        }
+    }
+
+    if (reviews.length < 15) {
+        let resP2 = await fetchHtml(`${_t(1)}${cleanUser}/films/reviews/page/2/`);
+        if (resP2.s === 200 && resP2.h) {
+            const docP2 = parser.parseFromString(resP2.h, "text/html");
+            docP2.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
+            extractReviewsFromDoc(docP2, cleanUser, reviews);
         }
     }
 
@@ -637,10 +632,10 @@ async function analiziBaslat() {
     out.innerHTML = "";
     statusBox.style.display = "block";
 
+    // 0 Kaçak Önbellek Kontrolü: 24 saat içinde yapıldıysa tek bir istek bile atmaz
     const cachedData = getCacheData(username);
-    const scanAllowed = canRunNewScan(username);
-
-    if (!scanAllowed && cachedData && cachedData.htmlResult) {
+    const now = Date.now();
+    if (cachedData && cachedData.htmlResult && (now - cachedData.lastSaved) < 24 * 60 * 60 * 1000) {
         statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
         out.innerHTML = cachedData.htmlResult;
         btn.disabled = false;
@@ -657,13 +652,6 @@ async function analiziBaslat() {
     }
 
     const currentLatestSlug = checkReviews[0].slug;
-
-    if (cachedData && cachedData.latestFilmSlug === currentLatestSlug && cachedData.htmlResult) {
-        statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
-        out.innerHTML = cachedData.htmlResult;
-        btn.disabled = false;
-        return;
-    }
 
     const following = await getFollowingList(username, statusBox);
     const followingSet = new Set(Object.keys(following));
@@ -697,7 +685,7 @@ async function analiziBaslat() {
     const sifirCekenler = new Set([...followingSet].filter(x => !assigned.has(x)));
 
     let adaylar = new Set();
-    for (let i = 6; i <= 10; i++) {
+    for (let i = 6; i <= 15; i++) {
         if (categoryMap[i]) categoryMap[i].forEach(u => adaylar.add(u));
     }
     sifirCekenler.forEach(u => adaylar.add(u));
@@ -734,12 +722,13 @@ async function analiziBaslat() {
 
     let finalHtml = "";
 
-    // 6-10 Arası İncelemeler (0 kişi olanlar temizce gizlenir)
-    for (let i = 6; i <= 10; i++) {
+    // 6-15 Arası İncelemeler (0 kişi olanlar basılmaz)
+    for (let i = 6; i <= 15; i++) {
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
 
         const rev = checkReviews[i - 1];
-        const revBenchmarkTs = rev.dateParsed ? rev.dateParsed.timestamp : 0;
+        const revBenchmarkTs = rev && rev.dateParsed ? rev.dateParsed.timestamp : 0;
+        const filmBaslik = rev ? rev.title : `${i}. İnceleme`;
 
         const katList = Array.from(categoryMap[i]).sort((a, b) => {
             const tA = userDates[a] ? userDates[a].timestamp : 0;
@@ -750,7 +739,7 @@ async function analiziBaslat() {
         finalHtml += `
             <div class="section-header">
                 <div class="section-title">
-                    📌 En Son ${i}. İncelemeni Beğenenler: <b>${rev.title}</b>
+                    📌 En Son ${i}. İncelemeni Beğenenler: <b>${filmBaslik}</b>
                 </div>
                 <span class="count-pill">${katList.length} Kişi</span>
             </div>
@@ -786,7 +775,7 @@ async function analiziBaslat() {
         `;
     }
 
-    // Sıfır Çekenler (Eğer 0 kişi değilse gösterilir)
+    // Sıfır Çekenler (Son 15 İncelemede Sıfır)
     if (sifirCekenler.size > 0) {
         const latestRev = checkReviews[0];
         const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
@@ -800,7 +789,7 @@ async function analiziBaslat() {
         finalHtml += `
             <div class="section-header danger">
                 <div class="section-title">
-                    🚨 Son 10 İncelemende SIFIR Beğenisi Olanlar
+                    🚨 Son 15 İncelemende SIFIR Beğenisi Olanlar
                 </div>
                 <span class="count-pill">${sifirList.length} Kişi</span>
             </div>
