@@ -499,7 +499,7 @@ async function getFollowingList(user, statusEl) {
 function extractReviewsFromDoc(doc, cleanUser, existingReviews) {
     const allLinks = doc.querySelectorAll("a[href]");
     allLinks.forEach(a => {
-        if (existingReviews.length >= 15) return;
+        if (existingReviews.length >= 12) return;
         let href = a.getAttribute("href");
         if (!href) return;
         href = href.split("?")[0].split("#")[0].replace(/^\/|\/$/g, "");
@@ -538,20 +538,11 @@ async function getTopReviews(user, statusEl) {
         extractReviewsFromDoc(doc, cleanUser, reviews);
     }
 
-    if (reviews.length < 15) {
+    if (reviews.length < 12) {
         let resProf = await fetchHtml(`${_t(1)}${cleanUser}/`);
         if (resProf.s === 200 && resProf.h) {
             const docProf = parser.parseFromString(resProf.h, "text/html");
             extractReviewsFromDoc(docProf, cleanUser, reviews);
-        }
-    }
-
-    if (reviews.length < 15) {
-        let resP2 = await fetchHtml(`${_t(1)}${cleanUser}/films/reviews/page/2/`);
-        if (resP2.s === 200 && resP2.h) {
-            const docP2 = parser.parseFromString(resP2.h, "text/html");
-            docP2.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
-            extractReviewsFromDoc(docP2, cleanUser, reviews);
         }
     }
 
@@ -685,7 +676,7 @@ async function analiziBaslat() {
     const sifirCekenler = new Set([...followingSet].filter(x => !assigned.has(x)));
 
     let adaylar = new Set();
-    for (let i = 6; i <= 15; i++) {
+    for (let i = 6; i <= 12; i++) {
         if (categoryMap[i]) categoryMap[i].forEach(u => adaylar.add(u));
     }
     sifirCekenler.forEach(u => adaylar.add(u));
@@ -722,8 +713,8 @@ async function analiziBaslat() {
 
     let finalHtml = "";
 
-    // 6-15 Arası İncelemeler (0 kişi olanlar basılmaz)
-    for (let i = 6; i <= 15; i++) {
+    // 6-12 Arası İncelemeler (0 kişi olanlar basılmaz)
+    for (let i = 6; i <= 12; i++) {
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
 
         const rev = checkReviews[i - 1];
@@ -775,7 +766,7 @@ async function analiziBaslat() {
         `;
     }
 
-    // Sıfır Çekenler (Son 15 İncelemede Sıfır)
+    // Sıfır Çekenler (Son 12 İncelemede Sıfır)
     if (sifirCekenler.size > 0) {
         const latestRev = checkReviews[0];
         const latestRevTs = latestRev && latestRev.dateParsed ? latestRev.dateParsed.timestamp : 0;
@@ -789,7 +780,7 @@ async function analiziBaslat() {
         finalHtml += `
             <div class="section-header danger">
                 <div class="section-title">
-                    🚨 Son 15 İncelemende SIFIR Beğenisi Olanlar
+                    🚨 Son 12 İncelemende SIFIR Beğenisi Olanlar
                 </div>
                 <span class="count-pill">${sifirList.length} Kişi</span>
             </div>
