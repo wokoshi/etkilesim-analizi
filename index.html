@@ -419,13 +419,25 @@ function getCacheData(username) {
 function saveCacheData(username, latestFilmSlug, htmlResult) {
     try {
         const now = Date.now();
-        let cache = {
-            lastSaved: now,
-            latestFilmSlug: latestFilmSlug,
-            htmlResult: htmlResult
-        };
+        let cache = getCacheData(username) || { timestamps: [] };
+        
+        // 24 saatten eski tarama zamanlarını temizle
+        cache.timestamps = (cache.timestamps || []).filter(t => (now - t) < 24 * 60 * 60 * 1000);
+        cache.timestamps.push(now);
+        
+        cache.latestFilmSlug = latestFilmSlug;
+        cache.htmlResult = htmlResult;
+        cache.lastSaved = now;
+
         localStorage.setItem(getCacheKey(username), JSON.stringify(cache));
     } catch(e) {}
+}
+
+function getValidScanTimestamps(username) {
+    const cache = getCacheData(username);
+    if (!cache || !cache.timestamps) return [];
+    const now = Date.now();
+    return cache.timestamps.filter(t => (now - t) < 24 * 60 * 60 * 1000);
 }
 
 function kisileriAyikla(doc, hedefObje) {
@@ -450,7 +462,7 @@ async function getFollowingList(user, statusEl) {
     let following = {};
     const parser = new DOMParser();
 
-    statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> 0 kişi bulundu...`;
+    statusEl.innerHTML = `⏳ <b>Takip edilenler taranıyor:</b> 0 kişi...`;
 
     const firstUrl = `${_t(1)}${user}/following/`;
     let res = await fetchHtml(firstUrl);
@@ -458,8 +470,9 @@ async function getFollowingList(user, statusEl) {
 
     const doc = parser.parseFromString(res.h, "text/html");
     const count = kisileriAyikla(doc, following);
+    let totalCount = Object.keys(following).length;
 
-    statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> ${Object.keys(following).length} kişi bulundu...`;
+    statusEl.innerHTML = `⏳ <b>Takip edilenler taranıyor:</b> ${totalCount} kişi...`;
 
     if (count < 25) return following;
 
@@ -480,8 +493,9 @@ async function getFollowingList(user, statusEl) {
 
             const pDoc = parser.parseFromString(pageRes.h, "text/html");
             const added = kisileriAyikla(pDoc, following);
+            totalCount = Object.keys(following).length;
 
-            statusEl.innerHTML = `⏳ <b>Takip ettiğiniz hesaplar taranıyor:</b> ${Object.keys(following).length} kişi bulundu...`;
+            statusEl.innerHTML = `⏳ <b>Takip edilenler taranıyor:</b> ${totalCount} kişi...`;
 
             if (added < 25) {
                 keepGoing = false;
@@ -530,13 +544,19 @@ async function getTopReviews(user, statusEl) {
     const parser = new DOMParser();
     const cleanUser = user.toLowerCase();
 
-    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor...</b>`;
+    // Canlı hissettiren 3'erli hızlı kesir simülasyonu
+    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor:</b> 3 / 12...`;
+    await new Promise(r => setTimeout(r, 120));
+    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor:</b> 6 / 12...`;
+
     let res = await fetchHtml(`${_t(1)}${cleanUser}/films/reviews/`);
     if (res.s === 200 && res.h) {
         const doc = parser.parseFromString(res.h, "text/html");
         doc.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
         extractReviewsFromDoc(doc, cleanUser, reviews);
     }
+
+    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor:</b> 9 / 12...`;
 
     if (reviews.length < 12) {
         let resProf = await fetchHtml(`${_t(1)}${cleanUser}/`);
@@ -545,6 +565,9 @@ async function getTopReviews(user, statusEl) {
             extractReviewsFromDoc(docProf, cleanUser, reviews);
         }
     }
+
+    statusEl.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor:</b> 12 / 12...`;
+    await new Promise(r => setTimeout(r, 100));
 
     return reviews;
 }
@@ -623,17 +646,41 @@ async function analiziBaslat() {
     out.innerHTML = "";
     statusBox.style.display = "block";
 
-    // 0 Kaçak Önbellek Kontrolü: 24 saat içinde yapıldıysa tek bir istek bile atmaz
     const cachedData = getCacheData(username);
-    const now = Date.now();
-    if (cachedData && cachedData.htmlResult && (now - cachedData.lastSaved) < 24 * 60 * 60 * 1000) {
-        statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
-        out.innerHTML = cachedData.htmlResult;
-        btn.disabled = false;
-        return;
+    const validTimestamps = getValidScanTimestamps(username);
+
+    // Eğer son 24 saatte 2'den fazla tarama yapıldıysa: film kontrolü yap
+    if (validTimestamps.length >= 2 && cachedData && cachedData.htmlResult) {
+        statusBox.innerHTML = `⏳ <b>Son incelemeleriniz kontrol ediliyor...</b>`;
+        
+        let checkFirstReviews = [];
+        let resCheck = await fetchHtml(`${_t(1)}${username}/films/reviews/`);
+        if (resCheck.s === 200 && resCheck.h) {
+            const pDoc = new DOMParser().parseFromString(resCheck.h, "text/html");
+            pDoc.querySelectorAll("aside, .sidebar, #sidebar").forEach(s => s.remove());
+            extractReviewsFromDoc(pDoc, username, checkFirstReviews);
+        }
+        if (checkFirstReviews.length === 0) {
+            let resP = await fetchHtml(`${_t(1)}${username}/`);
+            if (resP.s === 200 && resP.h) {
+                const pDoc2 = new DOMParser().parseFromString(resP.h, "text/html");
+                extractReviewsFromDoc(pDoc2, username, checkFirstReviews);
+            }
+        }
+
+        const latestDetectedSlug = checkFirstReviews.length > 0 ? checkFirstReviews[0].slug : "";
+
+        // Eğer yeni film loglamadıysa (son film aynıysa) doğrudan hafızayı ver ve çık
+        if (latestDetectedSlug && cachedData.latestFilmSlug === latestDetectedSlug) {
+            statusBox.innerHTML = `🎉 <b>Tüm analiz başarıyla tamamlandı!</b>`;
+            out.innerHTML = cachedData.htmlResult;
+            btn.disabled = false;
+            return;
+        }
     }
 
-    statusBox.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor...</b>`;
+    // Tam Tarama Aşaması
+    statusBox.innerHTML = `⏳ <b>Son incelemeleriniz alınıyor:</b> 0 / 12...`;
     const checkReviews = await getTopReviews(username, statusBox);
     
     if (checkReviews.length === 0) {
@@ -653,21 +700,29 @@ async function analiziBaslat() {
         return;
     }
 
-    statusBox.innerHTML = `⏳ <b>İncelemelerinizdeki beğeniler taranıyor...</b>`;
-    const likesPromises = checkReviews.map(r => getReviewLikers(r.path));
-    const allLikersResults = await Promise.all(likesPromises);
-
+    // Beğeniler taranırken canlı X / 12 gösterimi
     let reviewLikes = {};
-    checkReviews.forEach((r, idx) => {
-        const likers = allLikersResults[idx];
-        reviewLikes[idx + 1] = new Set([...likers].filter(x => followingSet.has(x)));
+    const totalRevCount = checkReviews.length;
+    statusBox.innerHTML = `⏳ <b>İnceleme beğenileri taranıyor:</b> 0 / ${totalRevCount}...`;
+
+    let completedLikes = 0;
+    const likesPromises = checkReviews.map(async (r, idx) => {
+        const likers = await getReviewLikers(r.path);
+        completedLikes++;
+        statusBox.innerHTML = `⏳ <b>İnceleme beğenileri taranıyor:</b> ${completedLikes} / ${totalRevCount}...`;
+        return { idx: idx + 1, likers: likers };
+    });
+
+    const allLikersResults = await Promise.all(likesPromises);
+    allLikersResults.forEach(res => {
+        reviewLikes[res.idx] = new Set([...res.likers].filter(x => followingSet.has(x)));
     });
 
     let assigned = new Set();
     let categoryMap = {};
 
     for (let i = 1; i <= checkReviews.length; i++) {
-        let cur = reviewLikes[i];
+        let cur = reviewLikes[i] || new Set();
         let fresh = new Set([...cur].filter(x => !assigned.has(x)));
         categoryMap[i] = fresh;
         cur.forEach(u => assigned.add(u));
@@ -713,7 +768,7 @@ async function analiziBaslat() {
 
     let finalHtml = "";
 
-    // 6-12 Arası İncelemeler (0 kişi olanlar basılmaz)
+    // 6-12 Arası İncelemeler
     for (let i = 6; i <= 12; i++) {
         if (!categoryMap[i] || categoryMap[i].size === 0) continue;
 
